@@ -1,0 +1,81 @@
+@import "tailwindcss";
+
+/* TeddySnaps Theme Colors */
+@theme {
+  --color-background: #0D0D0F;
+  --color-foreground: #FFFFFF;
+
+  /* Gold palette */
+  --color-gold-50: #FDF8E7;
+  --color-gold-100: #F9ECC4;
+  --color-gold-200: #F0D88A;
+  --color-gold-300: #E5C14F;
+  --color-gold-400: #D4A82E;
+  --color-gold-500: #C9A962;
+  --color-gold-600: #A88B3D;
+  --color-gold-700: #86702F;
+  --color-gold-800: #6B5A27;
+  --color-gold-900: #584A21;
+
+  /* Teal palette */
+  --color-teal-50: #EFFCFC;
+  --color-teal-100: #D6F6F6;
+  --color-teal-200: #B2EDED;
+  --color-teal-300: #7CDEDE;
+  --color-teal-400: #4ECDC4;
+  --color-teal-500: #2FB3AA;
+  --color-teal-600: #24908A;
+  --color-teal-700: #227470;
+  --color-teal-800: #215D5B;
+  --color-teal-900: #204D4C;
+
+  /* Charcoal palette */
+  --color-charcoal-50: #F5F5F6;
+  --color-charcoal-100: #E5E5E7;
+  --color-charcoal-200: #CDCDD0;
+  --color-charcoal-300: #AAAAB0;
+  --color-charcoal-400: #7F7F88;
+  --color-charcoal-500: #64646D;
+  --color-charcoal-600: #55555C;
+  --color-charcoal-700: #48484E;
+  --color-charcoal-800: #3F3F44;
+  --color-charcoal-900: #27272A;
+  --color-charcoal-950: #0D0D0F;
+
+  /* Fonts */
+  --font-family-serif: "Playfair Display", Georgia, serif;
+  --font-family-sans: "Inter", system-ui, sans-serif;
+}
+
+@layer base {
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-family-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1, h2, h3 {
+    font-family: var(--font-family-serif);
+  }
+}
+
+@layer components {
+  .glass {
+    background-color: rgba(39, 39, 42, 0.5);
+    backdrop-filter: blur(24px);
+    border: 1px solid rgba(63, 63, 68, 0.5);
+  }
+
+  .glow-gold {
+    box-shadow: 0 0 40px rgba(201, 169, 98, 0.15);
+  }
+
+  .text-gradient-gold {
+    background: linear-gradient(to right, var(--color-gold-400), var(--color-gold-600));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+}
