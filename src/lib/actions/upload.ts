@@ -143,3 +143,20 @@ export async function updateSessionStatus(
 
   revalidatePath("/admin");
 }
+
+export async function getSessionPhotos(sessionId: string) {
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("photos")
+    .select("id, original_url, thumbnail_url")
+    .eq("session_id", sessionId)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    console.error("Error fetching session photos:", error);
+    return [];
+  }
+
+  return data || [];
+}

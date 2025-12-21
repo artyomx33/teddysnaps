@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
     const payment = await mollieClient.payments.get(paymentId);
 
     // Extract order ID from metadata
-    const orderId = payment.metadata?.orderId as string;
+    const orderId = (payment.metadata as Record<string, unknown>)?.orderId as string;
 
     if (!orderId) {
       console.error("No orderId in payment metadata");

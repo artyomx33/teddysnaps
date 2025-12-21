@@ -12,11 +12,16 @@ import {
   MessageCircle,
   Building,
   Truck,
+  CreditCard,
+  Copy,
+  Check,
+  Share2,
+  Loader2,
 } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { Button, Card, CardContent, Badge } from "@/components/ui";
-import { getOrder } from "@/lib/actions/orders";
+import { getOrder, createPaymentForOrder } from "@/lib/actions/orders";
 import { formatPrice, formatDate } from "@/lib/utils";
 
 interface Order {
@@ -68,6 +73,9 @@ export default function OrderCompletePage() {
 
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isCreatingPayment, setIsCreatingPayment] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchOrder() {
@@ -85,6 +93,47 @@ export default function OrderCompletePage() {
       fetchOrder();
     }
   }, [orderId]);
+
+  const handlePayNow = async () => {
+    setIsCreatingPayment(true);
+    setPaymentError(null);
+    try {
+      const result = await createPaymentForOrder(orderId);
+      if (result.paymentUrl) {
+        window.location.href = result.paymentUrl;
+      }
+    } catch (error) {
+      console.error("Payment error:", error);
+      setPaymentError("Failed to create payment. Please try again.");
+      setIsCreatingPayment(false);
+    }
+  };
+
+  const orderUrl = typeof window !== "undefined"
+    ? `${window.location.origin}/order/${orderId}/complete`
+    : "";
+
+  const handleCopyLink = () => {
+    navigator.clipboard.writeText(orderUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleShare = async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: `TeddySnaps Order ${order?.order_number}`,
+          text: `Complete your TeddySnaps order - ${formatPrice(order?.total || 0)}`,
+          url: orderUrl,
+        });
+      } catch {
+        handleCopyLink();
+      }
+    } else {
+      handleCopyLink();
+    }
+  };
 
   if (loading) {
     return (

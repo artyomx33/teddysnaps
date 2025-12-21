@@ -1,6 +1,7 @@
+// Product IDs match the UUIDs in the database (supabase/schema.sql)
 export const PRODUCTS = [
   {
-    id: "digital-hd",
+    id: "11111111-1111-1111-1111-111111111111",
     name: "Digital HD",
     type: "digital" as const,
     size: null,
@@ -8,7 +9,7 @@ export const PRODUCTS = [
     description: "High resolution digital download",
   },
   {
-    id: "print-10x15",
+    id: "22222222-2222-2222-2222-222222222222",
     name: "10×15 Print",
     type: "print" as const,
     size: "10x15",
@@ -16,7 +17,7 @@ export const PRODUCTS = [
     description: "Glossy or matte finish",
   },
   {
-    id: "print-13x18",
+    id: "33333333-3333-3333-3333-333333333333",
     name: "13×18 Print",
     type: "print" as const,
     size: "13x18",
@@ -24,7 +25,7 @@ export const PRODUCTS = [
     description: "Glossy or matte finish",
   },
   {
-    id: "print-20x30",
+    id: "44444444-4444-4444-4444-444444444444",
     name: "20×30 Print",
     type: "print" as const,
     size: "20x30",
@@ -32,7 +33,7 @@ export const PRODUCTS = [
     description: "Large format print",
   },
   {
-    id: "canvas-30x40",
+    id: "55555555-5555-5555-5555-555555555555",
     name: "Canvas 30×40",
     type: "canvas" as const,
     size: "30x40",
@@ -40,7 +41,7 @@ export const PRODUCTS = [
     description: "Premium stretched canvas",
   },
   {
-    id: "photobook-20",
+    id: "66666666-6666-6666-6666-666666666666",
     name: "Photo Book 20 pages",
     type: "book" as const,
     size: "20pages",

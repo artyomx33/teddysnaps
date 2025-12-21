@@ -3,13 +3,13 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import {
-  Upload,
   Play,
   Pause,
   CheckCircle,
-  AlertCircle,
   Plus,
   Sparkles,
+  Loader2,
+  Brain,
 } from "lucide-react";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
@@ -21,7 +21,13 @@ import {
   uploadPhoto,
   getLocations,
   createLocation,
+  getSessionPhotos,
 } from "@/lib/actions/upload";
+import { getEnrolledChildren, savePhotoMatches } from "@/lib/actions/faces";
+import {
+  processPhotoBatch,
+  type ProcessingProgress,
+} from "@/lib/face-recognition/processor";
 
 export default function UploadPage() {
   const [locations, setLocations] = useState<Array<{ id: string; name: string }>>([]);
@@ -29,6 +35,9 @@ export default function UploadPage() {
   const [isUploading, setIsUploading] = useState(false);
   const [showAddLocation, setShowAddLocation] = useState(false);
   const [newLocationName, setNewLocationName] = useState("");
+  const [isProcessingAI, setIsProcessingAI] = useState(false);
+  const [aiProgress, setAiProgress] = useState<ProcessingProgress | null>(null);
+  const [aiComplete, setAiComplete] = useState(false);
 
   const {
     files,
@@ -135,10 +144,61 @@ export default function UploadPage() {
     setProcessing(false);
   }, [sessionId, files, updateFile, setProcessing]);
 
+  const startAIProcessing = useCallback(async () => {
+    if (!sessionId) return;
+
+    setIsProcessingAI(true);
+    setAiProgress(null);
+
+    try {
+      // Get photos from database
+      const photos = await getSessionPhotos(sessionId);
+      if (photos.length === 0) {
+        console.log("No photos to process");
+        setIsProcessingAI(false);
+        return;
+      }
+
+      // Get enrolled children
+      const enrolledChildren = await getEnrolledChildren();
+
+      // Process photos with AI
+      const results = await processPhotoBatch(
+        photos.map((p) => ({
+          id: p.id,
+          url: p.original_url,
+          thumbnailUrl: p.thumbnail_url,
+        })),
+        enrolledChildren,
+        (progress) => setAiProgress(progress)
+      );
+
+      // Save matches to database
+      const matches = results.flatMap((result) =>
+        result.matches.map((match) => ({
+          photoId: result.photoId,
+          childId: match.childId,
+          confidence: match.confidence,
+        }))
+      );
+
+      if (matches.length > 0) {
+        await savePhotoMatches(matches);
+      }
+
+      setAiComplete(true);
+    } catch (error) {
+      console.error("AI processing failed:", error);
+    } finally {
+      setIsProcessingAI(false);
+    }
+  }, [sessionId]);
+
   const pendingCount = getPendingCount();
   const completeCount = getCompleteCount();
   const hasFiles = files.length > 0;
   const canStartUpload = hasFiles && sessionId && pendingCount > 0;
+  const allUploadsComplete = completeCount > 0 && completeCount === files.length;
 
   return (
     <div className="flex min-h-screen">
@@ -255,7 +315,7 @@ export default function UploadPage() {
                       )}
                     </Button>
                   )}
-                  {completeCount > 0 && completeCount === files.length && (
+                  {allUploadsComplete && (
                     <Badge variant="success">
                       <CheckCircle className="w-3 h-3 mr-1" />
                       All uploads complete!
@@ -268,26 +328,75 @@ export default function UploadPage() {
             </motion.div>
           )}
 
-          {/* AI Processing Hint */}
-          {completeCount > 0 && (
+          {/* AI Processing Card */}
+          {(completeCount > 0 || sessionId) && (
             <Card variant="glass">
               <CardContent>
                 <div className="flex items-start gap-4">
                   <div className="w-12 h-12 rounded-xl bg-teal-500/20 flex items-center justify-center flex-shrink-0">
-                    <Sparkles className="w-6 h-6 text-teal-400" />
+                    {isProcessingAI ? (
+                      <Loader2 className="w-6 h-6 text-teal-400 animate-spin" />
+                    ) : aiComplete ? (
+                      <CheckCircle className="w-6 h-6 text-green-400" />
+                    ) : (
+                      <Brain className="w-6 h-6 text-teal-400" />
+                    )}
                   </div>
-                  <div>
+                  <div className="flex-1">
                     <h3 className="font-medium text-white mb-1">
-                      AI Face Recognition Ready
+                      {aiComplete
+                        ? "AI Processing Complete"
+                        : isProcessingAI
+                        ? "Processing Photos..."
+                        : "AI Face Recognition Ready"}
                     </h3>
-                    <p className="text-sm text-charcoal-400">
-                      Once all photos are uploaded, click &quot;Process with AI&quot; to
-                      automatically sort photos by child using face recognition.
-                    </p>
-                    <Button variant="secondary" size="sm" className="mt-3">
-                      <Sparkles className="w-4 h-4 mr-2" />
-                      Process with AI
-                    </Button>
+                    {isProcessingAI && aiProgress ? (
+                      <div className="space-y-2">
+                        <p className="text-sm text-charcoal-400">
+                          Processing photo {aiProgress.current} of {aiProgress.total}
+                          {" - "}
+                          <span className="text-teal-400">
+                            {aiProgress.status === "detecting"
+                              ? "Detecting faces..."
+                              : aiProgress.status === "matching"
+                              ? "Matching children..."
+                              : aiProgress.status === "complete"
+                              ? "Done"
+                              : "Error"}
+                          </span>
+                        </p>
+                        <div className="w-full h-2 bg-charcoal-800 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-teal-500 transition-all duration-300"
+                            style={{
+                              width: `${(aiProgress.current / aiProgress.total) * 100}%`,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    ) : aiComplete ? (
+                      <p className="text-sm text-green-400">
+                        Photos have been sorted by child. Families can now view
+                        their photos in the gallery!
+                      </p>
+                    ) : (
+                      <p className="text-sm text-charcoal-400">
+                        Click &quot;Process with AI&quot; to automatically sort photos
+                        by child using face recognition.
+                      </p>
+                    )}
+                    {!isProcessingAI && !aiComplete && (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        className="mt-3"
+                        onClick={startAIProcessing}
+                        disabled={!sessionId}
+                      >
+                        <Sparkles className="w-4 h-4 mr-2" />
+                        Process with AI
+                      </Button>
+                    )}
                   </div>
                 </div>
               </CardContent>

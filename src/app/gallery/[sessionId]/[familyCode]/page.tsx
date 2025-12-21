@@ -10,24 +10,32 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
-  Download,
   ZoomIn,
+  Loader2,
 } from "lucide-react";
+import Link from "next/link";
+import Image from "next/image";
+import { useParams } from "next/navigation";
 import { useGalleryStore } from "@/stores";
 import { useCartStore } from "@/stores";
-import { Button, Badge } from "@/components/ui";
+import { Button, Badge, Card, CardContent } from "@/components/ui";
 import { cn, formatPrice } from "@/lib/utils";
 import { PRODUCTS } from "@/config/pricing";
-
-// Demo photos - will be replaced with Supabase data
-const demoPhotos = Array.from({ length: 24 }, (_, i) => ({
-  id: `photo-${i + 1}`,
-  url: `https://picsum.photos/seed/${i + 100}/800/600`,
-  thumbnailUrl: `https://picsum.photos/seed/${i + 100}/400/300`,
-  isLiked: false,
-}));
+import {
+  getFamilyByAccessCode,
+  getSession,
+  getPhotosForFamily,
+  getAllPhotosInSession,
+  type Photo,
+  type Family,
+  type Session,
+} from "@/lib/actions/gallery";
 
 export default function GalleryPage() {
+  const params = useParams();
+  const sessionId = params.sessionId as string;
+  const familyCode = params.familyCode as string;
+
   const {
     photos,
     setPhotos,
@@ -47,14 +55,64 @@ export default function GalleryPage() {
     getSelectedPhoto,
   } = useGalleryStore();
 
-  const { addItem, getItemCount, getTotal } = useCartStore();
+  const { addItem, getItemCount, getTotal, setContext } = useCartStore();
 
   const [showPricing, setShowPricing] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [family, setFamily] = useState<Family | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
 
+  // Fetch gallery data
   useEffect(() => {
-    setPhotos(demoPhotos);
-  }, [setPhotos]);
+    async function fetchData() {
+      setLoading(true);
+      setError(null);
+
+      try {
+        // Fetch family by access code
+        const familyData = await getFamilyByAccessCode(familyCode);
+        if (!familyData) {
+          setError("Invalid access code. Please check your link.");
+          setLoading(false);
+          return;
+        }
+        setFamily(familyData);
+
+        // Fetch session
+        const sessionData = await getSession(sessionId);
+        if (!sessionData) {
+          setError("Photo session not found.");
+          setLoading(false);
+          return;
+        }
+        setSession(sessionData);
+
+        // Set cart context
+        setContext(familyData.id, sessionId);
+
+        // Fetch photos for this family
+        let photosData = await getPhotosForFamily(sessionId, familyData.id);
+
+        // If no matched photos, fall back to all session photos
+        if (photosData.length === 0) {
+          photosData = await getAllPhotosInSession(sessionId);
+        }
+
+        setPhotos(photosData);
+      } catch (err) {
+        console.error("Error loading gallery:", err);
+        setError("Failed to load gallery. Please try again.");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    if (sessionId && familyCode) {
+      fetchData();
+    }
+  }, [sessionId, familyCode, setPhotos, setContext]);
 
   const filteredPhotos = getFilteredPhotos();
   const selectedPhoto = getSelectedPhoto();
@@ -96,15 +154,87 @@ export default function GalleryPage() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isLightboxOpen, closeLightbox, nextPhoto, prevPhoto]);
 
+  // Loading state
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="w-12 h-12 text-gold-500 animate-spin mx-auto" />
+          <p className="mt-4 text-charcoal-400">Loading your photos...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Card className="max-w-md w-full mx-4">
+          <CardContent className="text-center py-12">
+            <X className="w-12 h-12 text-red-500 mx-auto mb-4" />
+            <h1 className="text-xl font-serif text-white mb-2">
+              Unable to Load Gallery
+            </h1>
+            <p className="text-charcoal-400 mb-6">{error}</p>
+            <Link href="/">
+              <Button variant="primary">Return Home</Button>
+            </Link>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // No photos state
+  if (photos.length === 0) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Card className="max-w-md w-full mx-4">
+          <CardContent className="text-center py-12">
+            <ShoppingCart className="w-12 h-12 text-charcoal-500 mx-auto mb-4" />
+            <h1 className="text-xl font-serif text-white mb-2">
+              No Photos Available
+            </h1>
+            <p className="text-charcoal-400 mb-6">
+              Photos for this session haven&apos;t been uploaded yet. Please check
+              back later!
+            </p>
+            <Link href="/">
+              <Button variant="primary">Return Home</Button>
+            </Link>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  const familyName = family?.family_name || "Your";
+  const sessionName = session?.name || "Photo Session";
+  const locationName = session?.location?.name || "TeddyKids";
+
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
       <header className="sticky top-0 z-40 bg-charcoal-900/80 backdrop-blur-xl border-b border-charcoal-800">
         <div className="max-w-7xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-serif text-white">Emma&apos;s Photos</h1>
-              <p className="text-sm text-charcoal-400">December Magic at TeddyKids</p>
+            <div className="flex items-center gap-4">
+              <Image
+                src="/logo.webp"
+                alt="TeddySnaps"
+                width={48}
+                height={48}
+                className="rounded-lg"
+              />
+              <div>
+                <h1 className="text-2xl font-serif text-white">
+                  {familyName} Family Photos
+                </h1>
+                <p className="text-sm text-charcoal-400">
+                  {sessionName} at {locationName}
+                </p>
+              </div>
             </div>
 
             <div className="flex items-center gap-4">
@@ -162,15 +292,17 @@ export default function GalleryPage() {
               </div>
 
               {/* Cart */}
-              <Button variant="primary" className="relative">
-                <ShoppingCart className="w-4 h-4 mr-2" />
-                {formatPrice(cartTotal)}
-                {cartCount > 0 && (
-                  <span className="absolute -top-2 -right-2 w-5 h-5 bg-teal-500 text-white text-xs rounded-full flex items-center justify-center">
-                    {cartCount}
-                  </span>
-                )}
-              </Button>
+              <Link href="/checkout">
+                <Button variant="primary" className="relative">
+                  <ShoppingCart className="w-4 h-4 mr-2" />
+                  {formatPrice(cartTotal)}
+                  {cartCount > 0 && (
+                    <span className="absolute -top-2 -right-2 w-5 h-5 bg-teal-500 text-white text-xs rounded-full flex items-center justify-center">
+                      {cartCount}
+                    </span>
+                  )}
+                </Button>
+              </Link>
             </div>
           </div>
         </div>
@@ -378,7 +510,7 @@ export default function GalleryPage() {
       </AnimatePresence>
 
       {/* Bottom Selection Bar */}
-      {likedCount > 0 && (
+      {(likedCount > 0 || cartCount > 0) && (
         <motion.div
           initial={{ y: 100 }}
           animate={{ y: 0 }}
@@ -388,7 +520,7 @@ export default function GalleryPage() {
             <div className="flex items-center gap-3">
               <Heart className="w-5 h-5 text-red-500 fill-current" />
               <span className="text-white">
-                {likedCount} photo{likedCount !== 1 ? "s" : ""} selected
+                {likedCount} photo{likedCount !== 1 ? "s" : ""} liked
               </span>
               {cartCount > 0 && (
                 <Badge variant="gold">{cartCount} in cart</Badge>
@@ -397,12 +529,17 @@ export default function GalleryPage() {
 
             <div className="flex items-center gap-4">
               <p className="text-charcoal-400">
-                Total: <span className="text-gold-500 font-medium">{formatPrice(cartTotal)}</span>
+                Total:{" "}
+                <span className="text-gold-500 font-medium">
+                  {formatPrice(cartTotal)}
+                </span>
               </p>
-              <Button variant="primary">
-                View Selection
-                <ChevronRight className="w-4 h-4 ml-2" />
-              </Button>
+              <Link href="/checkout">
+                <Button variant="primary">
+                  Checkout
+                  <ChevronRight className="w-4 h-4 ml-2" />
+                </Button>
+              </Link>
             </div>
           </div>
         </motion.div>

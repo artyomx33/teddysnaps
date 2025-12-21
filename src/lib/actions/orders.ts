@@ -278,3 +278,44 @@ export async function getOrderStats() {
     pendingOrders: pendingOrders || 0,
   };
 }
+
+/**
+ * Create a payment link for an existing unpaid order
+ */
+export async function createPaymentForOrder(orderId: string) {
+  const supabase = await createClient();
+
+  // Get the order
+  const { data: order, error } = await supabase
+    .from("orders")
+    .select("id, order_number, total, payment_status")
+    .eq("id", orderId)
+    .single();
+
+  if (error || !order) {
+    throw new Error("Order not found");
+  }
+
+  // Don't create payment for already paid orders
+  if (order.payment_status === "paid") {
+    throw new Error("Order is already paid");
+  }
+
+  const baseUrl = process.env.NEXT_PUBLIC_URL || "http://localhost:8001";
+
+  try {
+    const paymentUrl = await createPayment({
+      orderId: order.id,
+      orderNumber: order.order_number,
+      amount: Number(order.total),
+      description: `TeddySnaps Order ${order.order_number}`,
+      redirectUrl: `${baseUrl}/order/${order.id}/complete`,
+      webhookUrl: `${baseUrl}/api/webhooks/mollie`,
+    });
+
+    return { paymentUrl };
+  } catch (err) {
+    console.error("Failed to create payment:", err);
+    throw new Error("Failed to create payment link");
+  }
+}
