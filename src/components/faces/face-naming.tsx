@@ -20,7 +20,6 @@ import {
   getChildrenForNaming,
   nameCluster,
   createChildFromCluster,
-  skipCluster,
   undoClusterNaming,
   getFaceCounts,
   getFacesForMatching,
@@ -120,12 +119,9 @@ export function FaceNaming({
         setActiveGroupIndex(Math.max(activeGroupIndex - 1, 0));
       }
 
-      // S to skip current group
-      if (e.key === "s" || e.key === "S") {
-        handleSkipCluster(activeGroup.clusterId);
-        if (activeGroupIndex < faceGroups.length - 1) {
-          setActiveGroupIndex(activeGroupIndex + 1);
-        }
+      // C to clear current selection
+      if (e.key === "c" || e.key === "C") {
+        handleClearSelection(activeGroup.clusterId);
       }
 
       // Z to undo
@@ -221,16 +217,11 @@ export function FaceNaming({
     );
   };
 
-  const handleSkipCluster = (clusterId: string) => {
-    const group = faceGroups.find(g => g.clusterId === clusterId);
-    if (group) {
-      setLastAction({ type: "skip", clusterId, previousState: { ...group } });
-    }
-
+  const handleClearSelection = (clusterId: string) => {
     setFaceGroups((prev) =>
       prev.map((g) =>
         g.clusterId === clusterId
-          ? { ...g, isSkipped: true, selectedChildId: null, isCreatingNew: false, newChildName: "" }
+          ? { ...g, selectedChildId: null, isCreatingNew: false, newChildName: "" }
           : g
       )
     );
@@ -325,9 +316,7 @@ export function FaceNaming({
     try {
       // Only save faces on current page
       for (const group of paginatedGroups) {
-        if (group.isSkipped) {
-          await skipCluster(group.clusterId, sessionId);
-        } else if (group.selectedChildId) {
+        if (group.selectedChildId) {
           setLastAction({ type: "name", clusterId: group.clusterId, previousState: { ...group } });
           await nameCluster(group.clusterId, group.selectedChildId, sessionId);
         } else if (group.isCreatingNew && group.newChildName.trim()) {
@@ -357,7 +346,7 @@ export function FaceNaming({
   };
 
   const pageNamedCount = paginatedGroups.filter(
-    (g) => g.selectedChildId || (g.isCreatingNew && g.newChildName.trim()) || g.isSkipped
+    (g) => g.selectedChildId || (g.isCreatingNew && g.newChildName.trim())
   ).length;
 
   if (loading) {
@@ -480,7 +469,7 @@ export function FaceNaming({
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
                 <div><kbd className="bg-charcoal-700 px-1 rounded">1-9</kbd> Quick assign name</div>
                 <div><kbd className="bg-charcoal-700 px-1 rounded">←→</kbd> Navigate groups</div>
-                <div><kbd className="bg-charcoal-700 px-1 rounded">S</kbd> Skip group</div>
+                <div><kbd className="bg-charcoal-700 px-1 rounded">C</kbd> Clear selection</div>
                 <div><kbd className="bg-charcoal-700 px-1 rounded">N</kbd> New child</div>
                 <div><kbd className="bg-charcoal-700 px-1 rounded">⌘Z</kbd> Undo</div>
                 <div><kbd className="bg-charcoal-700 px-1 rounded">?</kbd> Toggle help</div>
@@ -500,12 +489,11 @@ export function FaceNaming({
             transition={{ delay: index * 0.02 }}
           >
             <Card
-              variant={group.selectedChildId || group.newChildName || group.isSkipped ? "glass" : "default"}
+              variant={group.selectedChildId || group.newChildName ? "glass" : "default"}
               className={cn(
                 "p-3 transition-all cursor-pointer",
                 index === activeGroupIndex && "ring-2 ring-gold-500",
-                group.selectedChildId && "border-teal-500/50",
-                group.isSkipped && "border-charcoal-600 opacity-50"
+                group.selectedChildId && "border-teal-500/50"
               )}
               onClick={() => setActiveGroupIndex(index)}
             >
@@ -528,12 +516,6 @@ export function FaceNaming({
               </div>
 
               {/* Status indicators */}
-              {group.isSkipped && (
-                <Badge variant="default" className="mb-3">
-                  <X className="w-3 h-3 mr-1" />
-                  Skipped
-                </Badge>
-              )}
               {group.selectedChildId && (
                 <Badge variant="success" className="mb-3">
                   <Check className="w-3 h-3 mr-1" />
@@ -548,8 +530,7 @@ export function FaceNaming({
               )}
 
               {/* Name buttons */}
-              {!group.isSkipped && (
-                <div className="space-y-2">
+              <div className="space-y-2">
                   {/* AI Suggestions (if available) */}
                   {group.suggestions.length > 0 && (
                     <div className="space-y-1">
@@ -644,23 +625,24 @@ export function FaceNaming({
                           <UserPlus className="w-4 h-4 mr-2" />
                           New
                         </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleSkipCluster(group.clusterId);
-                          }}
-                          className="text-charcoal-400"
-                        >
-                          <X className="w-4 h-4 mr-1" />
-                          Skip
-                        </Button>
+                        {group.selectedChildId && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleClearSelection(group.clusterId);
+                            }}
+                            className="text-charcoal-400"
+                          >
+                            <X className="w-4 h-4 mr-1" />
+                            Clear
+                          </Button>
+                        )}
                       </>
                     )}
                   </div>
-                </div>
-              )}
+              </div>
             </Card>
           </motion.div>
         ))}

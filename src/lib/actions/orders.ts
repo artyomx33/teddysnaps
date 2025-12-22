@@ -290,12 +290,7 @@ export async function getOrderStats() {
  * Used when webhook can't reach localhost during development
  */
 export async function checkAndUpdatePaymentStatus(orderId: string) {
-  // Use service role client to bypass RLS for updates
-  const { createClient: createServiceClient } = await import("@supabase/supabase-js");
-  const supabase = createServiceClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
+  const supabase = await createClient();
 
   // Get the order with payment_id
   const { data: order, error } = await supabase
