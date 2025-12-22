@@ -30,6 +30,7 @@ import {
   type Family,
   type Session,
 } from "@/lib/actions/gallery";
+import { imagePresets } from "@/lib/image-transform";
 
 export default function GalleryPage() {
   const params = useParams();
@@ -334,7 +335,7 @@ export default function GalleryPage() {
                 onClick={() => openLightbox(photo.id)}
               >
                 <img
-                  src={photo.thumbnailUrl}
+                  src={imagePresets.thumbnail(photo.thumbnailUrl)}
                   alt=""
                   className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                 />
@@ -415,7 +416,7 @@ export default function GalleryPage() {
               className="max-w-4xl max-h-[80vh] mx-auto px-16"
             >
               <img
-                src={selectedPhoto.url}
+                src={imagePresets.lightbox(selectedPhoto.url)}
                 alt=""
                 className="max-w-full max-h-[70vh] object-contain rounded-lg"
               />

@@ -123,7 +123,7 @@ export async function createOrder(input: CreateOrderInput) {
   const baseUrl = process.env.NEXT_PUBLIC_URL || "http://localhost:8001";
 
   try {
-    const paymentUrl = await createPayment({
+    const { paymentId, checkoutUrl } = await createPayment({
       orderId: order.id,
       orderNumber,
       amount: total,
@@ -133,12 +133,18 @@ export async function createOrder(input: CreateOrderInput) {
       customerEmail: input.email,
     });
 
+    // Store payment ID for status checking
+    await supabase
+      .from("orders")
+      .update({ payment_id: paymentId })
+      .eq("id", order.id);
+
     revalidatePath("/admin/orders");
 
     return {
       orderId: order.id,
       orderNumber,
-      paymentUrl,
+      paymentUrl: checkoutUrl,
       total,
     };
   } catch (error) {
@@ -280,6 +286,72 @@ export async function getOrderStats() {
 }
 
 /**
+ * Check payment status directly with Mollie and update order
+ * Used when webhook can't reach localhost during development
+ */
+export async function checkAndUpdatePaymentStatus(orderId: string) {
+  // Use service role client to bypass RLS for updates
+  const { createClient: createServiceClient } = await import("@supabase/supabase-js");
+  const supabase = createServiceClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+
+  // Get the order with payment_id
+  const { data: order, error } = await supabase
+    .from("orders")
+    .select("id, payment_id, payment_status")
+    .eq("id", orderId)
+    .single();
+
+  if (error || !order) {
+    console.error("Failed to fetch order:", error);
+    throw new Error("Order not found");
+  }
+
+  // If no payment_id stored, we can't check Mollie
+  if (!order.payment_id) {
+    return {
+      status: order.payment_status,
+      message: "No payment ID recorded. Please try paying again."
+    };
+  }
+
+  // Get status from Mollie
+  const { getPaymentStatus } = await import("@/lib/mollie/client");
+  const paymentInfo = await getPaymentStatus(order.payment_id);
+
+  console.log(`Mollie status for ${order.payment_id}:`, paymentInfo);
+
+  // Update order if payment is complete
+  if (paymentInfo.isPaid && order.payment_status !== "paid") {
+    const { error: updateError } = await supabase
+      .from("orders")
+      .update({
+        payment_status: "paid",
+        status: "paid",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", orderId);
+
+    if (updateError) {
+      console.error("Failed to update order:", updateError);
+      throw new Error("Failed to update order status");
+    }
+
+    revalidatePath(`/order/${orderId}/complete`);
+    revalidatePath("/admin/orders");
+
+    return { status: "paid", message: "Payment confirmed!" };
+  }
+
+  return {
+    status: paymentInfo.status,
+    message: `Payment status: ${paymentInfo.status}`
+  };
+}
+
+/**
  * Create a payment link for an existing unpaid order
  */
 export async function createPaymentForOrder(orderId: string) {
@@ -304,7 +376,7 @@ export async function createPaymentForOrder(orderId: string) {
   const baseUrl = process.env.NEXT_PUBLIC_URL || "http://localhost:8001";
 
   try {
-    const paymentUrl = await createPayment({
+    const { paymentId, checkoutUrl } = await createPayment({
       orderId: order.id,
       orderNumber: order.order_number,
       amount: Number(order.total),
@@ -313,7 +385,13 @@ export async function createPaymentForOrder(orderId: string) {
       webhookUrl: `${baseUrl}/api/webhooks/mollie`,
     });
 
-    return { paymentUrl };
+    // Store the payment ID so we can check status later
+    await supabase
+      .from("orders")
+      .update({ payment_id: paymentId })
+      .eq("id", orderId);
+
+    return { paymentUrl: checkoutUrl };
   } catch (err) {
     console.error("Failed to create payment:", err);
     throw new Error("Failed to create payment link");

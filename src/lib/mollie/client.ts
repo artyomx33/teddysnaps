@@ -14,8 +14,13 @@ export interface CreatePaymentParams {
   amount: number;
   description: string;
   redirectUrl: string;
-  webhookUrl: string;
+  webhookUrl?: string; // Optional - not available in local dev
   customerEmail?: string;
+}
+
+export interface CreatePaymentResult {
+  paymentId: string;
+  checkoutUrl: string;
 }
 
 /**
@@ -28,24 +33,35 @@ export async function createPayment({
   description,
   redirectUrl,
   webhookUrl,
-  customerEmail,
-}: CreatePaymentParams): Promise<string> {
+}: CreatePaymentParams): Promise<CreatePaymentResult> {
   try {
-    const payment = await mollieClient.payments.create({
+    // Check if webhook URL is reachable (skip localhost in test mode)
+    const isLocalhost = webhookUrl?.includes("localhost");
+
+    const paymentData: Record<string, unknown> = {
       amount: {
         currency: "EUR",
         value: amount.toFixed(2), // Mollie requires string with 2 decimals
       },
       description,
       redirectUrl,
-      webhookUrl,
       metadata: {
         orderId,
         orderNumber,
       },
-    });
+    };
 
-    return payment.getCheckoutUrl() || "";
+    // Only include webhookUrl if it's not localhost (Mollie can't reach it)
+    if (webhookUrl && !isLocalhost) {
+      paymentData.webhookUrl = webhookUrl;
+    }
+
+    const payment = await mollieClient.payments.create(paymentData);
+
+    return {
+      paymentId: payment.id,
+      checkoutUrl: payment.getCheckoutUrl() || "",
+    };
   } catch (error) {
     console.error("Failed to create Mollie payment:", error);
     throw new Error("Failed to create payment");

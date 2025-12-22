@@ -22,6 +22,7 @@ import { Header } from "@/components/layout/header";
 import { Card, CardContent, Button, Badge } from "@/components/ui";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
+import { imagePresets } from "@/lib/image-transform";
 
 interface Photo {
   id: string;
@@ -273,7 +274,7 @@ export default function SessionDetailPage() {
                         )}
                       >
                         <img
-                          src={photo.thumbnail_url}
+                          src={imagePresets.thumbnail(photo.thumbnail_url)}
                           alt=""
                           className="w-full h-full object-cover"
                         />
@@ -313,7 +314,7 @@ export default function SessionDetailPage() {
                 {selectedPhoto ? (
                   <Card variant="glass" className="p-4 sticky top-24">
                     <img
-                      src={selectedPhoto.thumbnail_url}
+                      src={imagePresets.preview(selectedPhoto.thumbnail_url)}
                       alt=""
                       className="w-full aspect-square object-cover rounded-lg mb-4"
                     />

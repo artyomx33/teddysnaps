@@ -17,11 +17,12 @@ import {
   Check,
   Share2,
   Loader2,
+  RefreshCw,
 } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { Button, Card, CardContent, Badge } from "@/components/ui";
-import { getOrder, createPaymentForOrder } from "@/lib/actions/orders";
+import { getOrder, createPaymentForOrder, checkAndUpdatePaymentStatus } from "@/lib/actions/orders";
 import { formatPrice, formatDate } from "@/lib/utils";
 
 interface Order {
@@ -74,8 +75,10 @@ export default function OrderCompletePage() {
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [isCreatingPayment, setIsCreatingPayment] = useState(false);
+  const [isCheckingStatus, setIsCheckingStatus] = useState(false);
   const [copied, setCopied] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchOrder() {
@@ -97,6 +100,7 @@ export default function OrderCompletePage() {
   const handlePayNow = async () => {
     setIsCreatingPayment(true);
     setPaymentError(null);
+    setStatusMessage(null);
     try {
       const result = await createPaymentForOrder(orderId);
       if (result.paymentUrl) {
@@ -106,6 +110,26 @@ export default function OrderCompletePage() {
       console.error("Payment error:", error);
       setPaymentError("Failed to create payment. Please try again.");
       setIsCreatingPayment(false);
+    }
+  };
+
+  const handleCheckStatus = async () => {
+    setIsCheckingStatus(true);
+    setPaymentError(null);
+    setStatusMessage(null);
+    try {
+      const result = await checkAndUpdatePaymentStatus(orderId);
+      if (result.status === "paid") {
+        // Refresh the page to show updated status
+        window.location.reload();
+      } else {
+        setStatusMessage(result.message);
+      }
+    } catch (error) {
+      console.error("Status check error:", error);
+      setPaymentError("Failed to check payment status.");
+    } finally {
+      setIsCheckingStatus(false);
     }
   };
 
@@ -348,6 +372,119 @@ export default function OrderCompletePage() {
           </Card>
         </motion.div>
 
+        {/* Payment Actions for Pending/Failed */}
+        {(isPending || isFailed) && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.35 }}
+            className="mt-6"
+          >
+            <Card variant="glow">
+              <CardContent className="space-y-4">
+                <h3 className="text-lg font-medium text-white flex items-center gap-2">
+                  <CreditCard className="w-5 h-5 text-gold-500" />
+                  Complete Payment
+                </h3>
+
+                {paymentError && (
+                  <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-sm text-red-400">
+                    {paymentError}
+                  </div>
+                )}
+
+                {statusMessage && (
+                  <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg text-sm text-amber-400">
+                    {statusMessage}
+                  </div>
+                )}
+
+                <Button
+                  variant="primary"
+                  size="lg"
+                  className="w-full"
+                  onClick={handlePayNow}
+                  disabled={isCreatingPayment}
+                >
+                  {isCreatingPayment ? (
+                    <>
+                      <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                      Creating payment...
+                    </>
+                  ) : (
+                    <>
+                      <CreditCard className="w-5 h-5 mr-2" />
+                      Pay {formatPrice(order.total)} Now
+                    </>
+                  )}
+                </Button>
+
+                {/* Check status button - for when webhook doesn't work (localhost) */}
+                <Button
+                  variant="outline"
+                  size="lg"
+                  className="w-full"
+                  onClick={handleCheckStatus}
+                  disabled={isCheckingStatus}
+                >
+                  {isCheckingStatus ? (
+                    <>
+                      <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                      Checking...
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="w-5 h-5 mr-2" />
+                      Already paid? Check status
+                    </>
+                  )}
+                </Button>
+
+                <div className="relative">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-charcoal-700" />
+                  </div>
+                  <div className="relative flex justify-center text-xs">
+                    <span className="bg-charcoal-900 px-2 text-charcoal-500">
+                      or share this link
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex gap-2">
+                  <div className="flex-1 bg-charcoal-800 rounded-lg px-3 py-2 text-sm text-charcoal-400 truncate">
+                    {orderUrl}
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleCopyLink}
+                    className="shrink-0"
+                  >
+                    {copied ? (
+                      <Check className="w-4 h-4 text-green-500" />
+                    ) : (
+                      <Copy className="w-4 h-4" />
+                    )}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleShare}
+                    className="shrink-0"
+                  >
+                    <Share2 className="w-4 h-4" />
+                  </Button>
+                </div>
+
+                <p className="text-xs text-charcoal-500 text-center">
+                  Share this link via WhatsApp, email, or any other way
+                </p>
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
+
         {/* Actions */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -361,14 +498,6 @@ export default function OrderCompletePage() {
               Return Home
             </Button>
           </Link>
-          {isFailed && (
-            <Link href="/checkout" className="flex-1">
-              <Button variant="primary" size="lg" className="w-full">
-                <ShoppingBag className="w-5 h-5 mr-2" />
-                Try Again
-              </Button>
-            </Link>
-          )}
         </motion.div>
 
         {/* Footer */}

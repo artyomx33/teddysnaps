@@ -101,44 +101,59 @@ export default function UploadPage() {
     setProcessing(true);
 
     const pendingFiles = files.filter((f) => f.status === "pending");
+    const CONCURRENCY_LIMIT = 6; // Upload 6 files at a time
 
-    for (const file of pendingFiles) {
+    // Upload a single file
+    const uploadSingleFile = async (file: typeof pendingFiles[0]) => {
       try {
-        // Update status to uploading
         updateFile(file.id, { status: "uploading", progress: 0 });
 
-        // Create FormData
         const formData = new FormData();
         formData.append("file", file.file);
 
-        // Simulate progress updates
+        // Progress simulation
         const progressInterval = setInterval(() => {
           updateFile(file.id, {
             progress: Math.min(
-              (files.find((f) => f.id === file.id)?.progress || 0) + 10,
+              (files.find((f) => f.id === file.id)?.progress || 0) + 15,
               90
             ),
           });
-        }, 200);
+        }, 150);
 
-        // Upload
         await uploadPhoto(sessionId, formData);
 
         clearInterval(progressInterval);
-
-        // Mark as complete
-        updateFile(file.id, {
-          status: "complete",
-          progress: 100,
-        });
+        updateFile(file.id, { status: "complete", progress: 100 });
       } catch (error) {
         console.error("Upload failed:", error);
-        updateFile(file.id, {
-          status: "error",
-          error: "Upload failed",
-        });
+        updateFile(file.id, { status: "error", error: "Upload failed" });
       }
-    }
+    };
+
+    // Process uploads in parallel batches
+    const uploadInBatches = async () => {
+      const queue = [...pendingFiles];
+      const active: Promise<void>[] = [];
+
+      while (queue.length > 0 || active.length > 0) {
+        // Fill up to concurrency limit
+        while (active.length < CONCURRENCY_LIMIT && queue.length > 0) {
+          const file = queue.shift()!;
+          const promise = uploadSingleFile(file).then(() => {
+            active.splice(active.indexOf(promise), 1);
+          });
+          active.push(promise);
+        }
+
+        // Wait for at least one to complete before adding more
+        if (active.length > 0) {
+          await Promise.race(active);
+        }
+      }
+    };
+
+    await uploadInBatches();
 
     setIsUploading(false);
     setProcessing(false);
