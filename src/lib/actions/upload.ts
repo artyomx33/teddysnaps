@@ -160,3 +160,34 @@ export async function getSessionPhotos(sessionId: string) {
 
   return data || [];
 }
+
+/**
+ * Upload a face crop to Supabase storage
+ */
+export async function uploadFaceCrop(
+  sessionId: string,
+  faceId: string,
+  blob: Blob
+): Promise<string> {
+  const supabase = await createClient();
+
+  const filename = `faces/${sessionId}/${faceId}.webp`;
+
+  const { error } = await supabase.storage
+    .from("photos")
+    .upload(filename, blob, {
+      contentType: "image/webp",
+      upsert: true,
+    });
+
+  if (error) {
+    console.error("Error uploading face crop:", error);
+    throw new Error("Failed to upload face crop");
+  }
+
+  const { data: publicUrl } = supabase.storage
+    .from("photos")
+    .getPublicUrl(filename);
+
+  return publicUrl.publicUrl;
+}
