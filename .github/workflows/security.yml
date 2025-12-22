@@ -35,7 +35,9 @@ jobs:
       - name: Check for hardcoded secrets
         run: |
           echo "Checking for hardcoded secrets in src/..."
-          SECRETS=$(grep -rE "(SUPABASE_SERVICE_ROLE|MOLLIE_API_KEY|MOLLIE_LIVE_API_KEY|sk_live_|pk_live_|supabase_service_role_key)" --include="*.ts" --include="*.tsx" --include="*.js" src/ 2>/dev/null || true)
+          # Look for actual secret VALUES, not variable names
+          # Pattern: actual JWT tokens, API keys with values, etc.
+          SECRETS=$(grep -rE "(eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+|sk-ant-[a-zA-Z0-9-]+|test_[a-zA-Z0-9]{20,}|live_[a-zA-Z0-9]{20,})" --include="*.ts" --include="*.tsx" --include="*.js" src/ 2>/dev/null | grep -v "process\.env\." | grep -v "\.env" || true)
           if [ -n "$SECRETS" ]; then
             echo "::error::Potential hardcoded secrets found!"
             echo "$SECRETS"
