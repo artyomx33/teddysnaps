@@ -10,6 +10,7 @@ import {
   Settings,
   Camera,
   LogOut,
+  Scan,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -25,6 +26,7 @@ export function Sidebar({ role }: SidebarProps) {
     { href: "/admin/upload", icon: Upload, label: "Upload" },
     { href: "/admin/orders", icon: ShoppingCart, label: "Orders" },
     { href: "/admin/families", icon: Users, label: "Families" },
+    { href: "/admin/faces", icon: Scan, label: "Faces" },
     { href: "/admin/settings", icon: Settings, label: "Settings" },
   ];
 
