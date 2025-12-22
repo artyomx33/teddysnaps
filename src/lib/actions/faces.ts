@@ -244,12 +244,7 @@ export async function saveDiscoveredFaces(
     detectionScore: number;
   }>
 ): Promise<string[]> {
-  // Use service role client to bypass RLS for batch operations
-  const { createClient: createServiceClient } = await import("@supabase/supabase-js");
-  const supabase = createServiceClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
+  const supabase = await createClient();
 
   console.log(`[saveDiscoveredFaces] Saving ${faces.length} faces for session ${sessionId}`);
 
@@ -358,12 +353,91 @@ export async function getUnnamedFaces(sessionId: string) {
 }
 
 /**
+ * Get face counts for a session (total, named, skipped, remaining)
+ */
+export async function getFaceCounts(sessionId: string) {
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("discovered_faces")
+    .select("is_named, is_skipped")
+    .eq("session_id", sessionId);
+
+  if (error) {
+    console.error("Error fetching face counts:", error);
+    return { total: 0, named: 0, skipped: 0, remaining: 0 };
+  }
+
+  const faces = data || [];
+  const total = faces.length;
+  const named = faces.filter(f => f.is_named).length;
+  const skipped = faces.filter(f => f.is_skipped).length;
+  const remaining = total - named - skipped;
+
+  return { total, named, skipped, remaining };
+}
+
+/**
+ * Get all faces with descriptors for AI matching
+ * Returns unnamed faces and named faces (as reference)
+ */
+export async function getFacesForMatching(sessionId: string) {
+  const supabase = await createClient();
+
+  // Get unnamed faces with descriptors
+  const { data: unnamed, error: unnamedError } = await supabase
+    .from("discovered_faces")
+    .select("id, photo_id, crop_url, face_descriptor")
+    .eq("session_id", sessionId)
+    .eq("is_named", false)
+    .eq("is_skipped", false)
+    .not("face_descriptor", "is", null)
+    .order("photo_id");
+
+  if (unnamedError) {
+    console.error("Error fetching unnamed faces:", unnamedError);
+    return { unnamed: [], named: [] };
+  }
+
+  // Get named faces as reference (with child info)
+  const { data: named, error: namedError } = await supabase
+    .from("discovered_faces")
+    .select(`
+      id,
+      child_id,
+      face_descriptor,
+      children (
+        id,
+        first_name,
+        families (
+          family_name
+        )
+      )
+    `)
+    .eq("session_id", sessionId)
+    .eq("is_named", true)
+    .not("face_descriptor", "is", null);
+
+  if (namedError) {
+    console.error("Error fetching named faces:", namedError);
+    return { unnamed: unnamed || [], named: [] };
+  }
+
+  return {
+    unnamed: unnamed || [],
+    named: named || [],
+  };
+}
+
+/**
  * Update cluster assignments for faces
  */
 export async function updateFaceClusters(
   assignments: Array<{ faceId: string; clusterId: string }>
 ) {
   const supabase = await createClient();
+
+  console.log(`[updateFaceClusters] Updating ${assignments.length} faces`);
 
   // Batch update using Promise.all
   await Promise.all(
@@ -389,19 +463,43 @@ export async function nameCluster(
 ) {
   const supabase = await createClient();
 
-  // 1. Get all faces in this cluster
-  const { data: faces, error: fetchError } = await supabase
+  console.log(`[nameCluster] Naming cluster ${clusterId} as child ${childId}`);
+
+  // 1. Get all faces in this cluster (or single face if no cluster)
+  // When faces aren't clustered, clusterId is actually the face.id
+  let query = supabase
     .from("discovered_faces")
     .select("id, photo_id, face_descriptor")
-    .eq("cluster_id", clusterId)
     .eq("session_id", sessionId);
 
-  if (fetchError || !faces) {
+  // Check if this is a cluster_id or a face id (unclustered)
+  const { data: clusterCheck } = await supabase
+    .from("discovered_faces")
+    .select("id")
+    .eq("cluster_id", clusterId)
+    .eq("session_id", sessionId)
+    .limit(1);
+
+  const isClusterId = clusterCheck && clusterCheck.length > 0;
+
+  if (isClusterId) {
+    query = query.eq("cluster_id", clusterId);
+  } else {
+    // It's a face ID (unclustered face)
+    query = query.eq("id", clusterId);
+  }
+
+  const { data: faces, error: fetchError } = await query;
+
+  if (fetchError || !faces || faces.length === 0) {
     console.error("Error fetching cluster faces:", fetchError);
     throw new Error("Failed to fetch cluster faces");
   }
 
+  console.log(`[nameCluster] Found ${faces.length} faces to name`);
+
   // 2. Update discovered_faces
+  const faceIds = faces.map(f => f.id);
   const { error: updateError } = await supabase
     .from("discovered_faces")
     .update({
@@ -409,8 +507,7 @@ export async function nameCluster(
       is_named: true,
       confidence: 1.0, // Manual assignment = 100% confidence
     })
-    .eq("cluster_id", clusterId)
-    .eq("session_id", sessionId);
+    .in("id", faceIds);
 
   if (updateError) {
     console.error("Error naming cluster:", updateError);
@@ -465,16 +562,35 @@ export async function skipFace(faceId: string) {
 }
 
 /**
- * Skip all faces in a cluster
+ * Skip all faces in a cluster (or single unclustered face)
  */
 export async function skipCluster(clusterId: string, sessionId: string) {
   const supabase = await createClient();
 
-  const { error } = await supabase
+  console.log(`[skipCluster] Skipping cluster ${clusterId}`);
+
+  // Check if this is a cluster_id or a face id (unclustered)
+  const { data: clusterCheck } = await supabase
     .from("discovered_faces")
-    .update({ is_skipped: true, is_named: true })
+    .select("id")
     .eq("cluster_id", clusterId)
-    .eq("session_id", sessionId);
+    .eq("session_id", sessionId)
+    .limit(1);
+
+  const isClusterId = clusterCheck && clusterCheck.length > 0;
+
+  let query = supabase
+    .from("discovered_faces")
+    .update({ is_skipped: true, is_named: true });
+
+  if (isClusterId) {
+    query = query.eq("cluster_id", clusterId).eq("session_id", sessionId);
+  } else {
+    // It's a face ID (unclustered face)
+    query = query.eq("id", clusterId);
+  }
+
+  const { error } = await query;
 
   if (error) {
     console.error("Error skipping cluster:", error);
@@ -489,6 +605,8 @@ export async function skipCluster(clusterId: string, sessionId: string) {
  */
 export async function undoClusterNaming(clusterId: string, sessionId: string) {
   const supabase = await createClient();
+
+  console.log(`[undoClusterNaming] Undoing cluster ${clusterId}`);
 
   // 1. Get the child_id before we clear it
   const { data: faces } = await supabase
@@ -555,6 +673,8 @@ export async function createChildFromCluster(
 ) {
   const supabase = await createClient();
 
+  console.log(`[createChildFromCluster] Creating child "${firstName}" for cluster ${clusterId}`);
+
   // Generate access code
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let accessCode = "TEDDY";
@@ -579,13 +699,27 @@ export async function createChildFromCluster(
   }
 
   // Get representative face descriptor for enrollment
-  const { data: face } = await supabase
+  // Check if clusterId is a cluster or a face id
+  const { data: clusterCheck } = await supabase
     .from("discovered_faces")
-    .select("face_descriptor, crop_url")
+    .select("id")
     .eq("cluster_id", clusterId)
     .eq("session_id", sessionId)
-    .limit(1)
-    .single();
+    .limit(1);
+
+  const isClusterId = clusterCheck && clusterCheck.length > 0;
+
+  let faceQuery = supabase
+    .from("discovered_faces")
+    .select("face_descriptor, crop_url");
+
+  if (isClusterId) {
+    faceQuery = faceQuery.eq("cluster_id", clusterId).eq("session_id", sessionId);
+  } else {
+    faceQuery = faceQuery.eq("id", clusterId);
+  }
+
+  const { data: face } = await faceQuery.limit(1).single();
 
   // Create child with face descriptor (auto-enrolled!)
   const { data: child, error: childError } = await supabase
