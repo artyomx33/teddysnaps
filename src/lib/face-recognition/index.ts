@@ -12,3 +12,5 @@ export { extractFaceCrop, extractAllFaceCrops } from "./cropper";
 export type { FaceCrop } from "./cropper";
 export { discoverFacesInBatch } from "./discovery";
 export type { DiscoveredFaceData, DiscoveryProgress } from "./discovery";
+export { clusterFaces, findMatchingChild } from "./clustering";
+export type { ClusterableItem, Cluster } from "./clustering";
