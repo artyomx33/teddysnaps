@@ -75,6 +75,82 @@ export function findAllMatches(
   return matches;
 }
 
+export interface SuggestedMatch {
+  childId: string;
+  childName: string;
+  familyName: string;
+  similarity: number; // 0-1, higher is better
+}
+
+/**
+ * Find top N matching children for a face descriptor
+ * Returns matches sorted by similarity (highest first)
+ */
+export function findTopMatches(
+  faceDescriptor: number[],
+  namedFaces: Array<{
+    childId: string;
+    childName: string;
+    familyName: string;
+    descriptor: number[];
+  }>,
+  maxResults: number = 3,
+  minSimilarity: number = 0.5
+): SuggestedMatch[] {
+  const matches: SuggestedMatch[] = [];
+
+  for (const named of namedFaces) {
+    // Calculate Euclidean distance
+    let sum = 0;
+    for (let i = 0; i < faceDescriptor.length; i++) {
+      sum += (faceDescriptor[i] - named.descriptor[i]) ** 2;
+    }
+    const distance = Math.sqrt(sum);
+
+    // Convert distance to similarity (0-1)
+    // face-api.js distances: 0-0.4 = same person, 0.6+ = different
+    // Map 0->1, 0.6->0.4, 1.0->0
+    const similarity = Math.max(0, 1 - distance);
+
+    if (similarity >= minSimilarity) {
+      matches.push({
+        childId: named.childId,
+        childName: named.childName,
+        familyName: named.familyName,
+        similarity,
+      });
+    }
+  }
+
+  // Sort by similarity (highest first) and take top N
+  return matches
+    .sort((a, b) => b.similarity - a.similarity)
+    .slice(0, maxResults);
+}
+
+/**
+ * Run AI matching on all unnamed faces
+ * Returns map of faceId -> suggested matches
+ */
+export function matchAllFaces(
+  unnamedFaces: Array<{ id: string; descriptor: number[] }>,
+  namedFaces: Array<{
+    childId: string;
+    childName: string;
+    familyName: string;
+    descriptor: number[];
+  }>
+): Map<string, SuggestedMatch[]> {
+  const results = new Map<string, SuggestedMatch[]>();
+
+  for (const face of unnamedFaces) {
+    const matches = findTopMatches(face.descriptor, namedFaces);
+    results.set(face.id, matches);
+  }
+
+  return results;
+}
+
 /**
  * Create a FaceMatcher for faster repeated matching
  */
