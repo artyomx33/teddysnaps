@@ -12,6 +12,7 @@ import {
   X,
   Undo,
   Keyboard,
+  Wand2,
 } from "lucide-react";
 import { Button, Card, CardContent, Badge, Input } from "@/components/ui";
 import {
@@ -21,8 +22,21 @@ import {
   createChildFromCluster,
   skipCluster,
   undoClusterNaming,
+  getFaceCounts,
+  getFacesForMatching,
 } from "@/lib/actions/faces";
 import { cn } from "@/lib/utils";
+import { matchAllFaces, SuggestedMatch } from "@/lib/face-recognition/matcher";
+
+function getConfidenceColor(similarity: number): string {
+  if (similarity >= 0.95) return "bg-teal-500 text-white"; // Green - high confidence
+  if (similarity >= 0.85) return "bg-amber-500 text-white"; // Yellow - good match
+  return "bg-charcoal-600 text-charcoal-300"; // Gray - low confidence
+}
+
+function formatSimilarity(similarity: number): string {
+  return `${Math.round(similarity * 100)}%`;
+}
 
 interface FaceNamingProps {
   sessionId: string;
@@ -32,11 +46,12 @@ interface FaceNamingProps {
 
 interface FaceGroup {
   clusterId: string;
-  faces: Array<{ id: string; cropUrl: string }>;
+  faces: Array<{ id: string; cropUrl: string; descriptor?: number[] }>;
   selectedChildId: string | null;
   newChildName: string;
   isCreatingNew: boolean;
   isSkipped: boolean;
+  suggestions: SuggestedMatch[];
 }
 
 interface LastAction {
@@ -59,6 +74,9 @@ export function FaceNaming({
   const [activeGroupIndex, setActiveGroupIndex] = useState(0);
   const [lastAction, setLastAction] = useState<LastAction | null>(null);
   const [showKeyboardHelp, setShowKeyboardHelp] = useState(false);
+  const [faceCounts, setFaceCounts] = useState({ total: 0, named: 0, skipped: 0, remaining: 0 });
+  const [isMatching, setIsMatching] = useState(false);
+  const [hasMatched, setHasMatched] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -126,10 +144,13 @@ export function FaceNaming({
   async function loadData() {
     setLoading(true);
 
-    const [faces, children] = await Promise.all([
+    const [faces, children, counts] = await Promise.all([
       getUnnamedFaces(sessionId),
       getChildrenForNaming(locationId),
+      getFaceCounts(sessionId),
     ]);
+
+    setFaceCounts(counts);
 
     // Group faces by cluster
     const groupedByCluster = new Map<string, Array<{ id: string; cropUrl: string }>>();
@@ -149,6 +170,7 @@ export function FaceNaming({
         newChildName: "",
         isCreatingNew: false,
         isSkipped: false,
+        suggestions: [],
       })
     );
 
@@ -228,6 +250,67 @@ export function FaceNaming({
     setLastAction(null);
   }, [lastAction, sessionId]);
 
+  const handleMatchWithAI = async () => {
+    setIsMatching(true);
+
+    try {
+      // Fetch faces with descriptors
+      const { unnamed, named } = await getFacesForMatching(sessionId);
+
+      if (named.length === 0) {
+        alert("No named faces to match against. Name a few faces first!");
+        setIsMatching(false);
+        return;
+      }
+
+      // Prepare named faces for matching
+      const namedForMatching = named.map((f: any) => ({
+        childId: f.child_id,
+        childName: f.children?.first_name || "Unknown",
+        familyName: f.children?.families?.family_name || "",
+        descriptor: f.face_descriptor as number[],
+      }));
+
+      // Prepare unnamed faces for matching
+      const unnamedForMatching = unnamed.map((f: any) => ({
+        id: f.id,
+        descriptor: f.face_descriptor as number[],
+      }));
+
+      // Run AI matching (client-side, fast!)
+      const matchResults = matchAllFaces(unnamedForMatching, namedForMatching);
+
+      // Update face groups with suggestions
+      setFaceGroups((prev) =>
+        prev.map((group) => {
+          // Find matches for any face in this group
+          const faceId = group.faces[0]?.id;
+          if (!faceId) return group;
+
+          // Look up by clusterId first (if clustered), then by face id
+          const suggestions = matchResults.get(group.clusterId) || matchResults.get(faceId) || [];
+
+          // Auto-select if top match is >= 85%
+          const topMatch = suggestions[0];
+          const autoSelect = topMatch && topMatch.similarity >= 0.85 ? topMatch.childId : null;
+
+          return {
+            ...group,
+            suggestions,
+            selectedChildId: autoSelect || group.selectedChildId,
+          };
+        })
+      );
+
+      setHasMatched(true);
+    } catch (error) {
+      console.error("Error during AI matching:", error);
+      alert("Failed to run AI matching. Please try again.");
+    } finally {
+      setIsMatching(false);
+    }
+  };
+
   const handleSaveAll = async () => {
     setSaving(true);
 
@@ -273,10 +356,23 @@ export function FaceNaming({
   }
 
   if (faceGroups.length === 0) {
+    const allDone = faceCounts.total > 0 && faceCounts.remaining === 0;
     return (
       <Card variant="glass" className="p-8 text-center">
-        <Users className="w-12 h-12 text-charcoal-500 mx-auto mb-4" />
-        <p className="text-charcoal-400">No unnamed faces to review</p>
+        {allDone ? (
+          <>
+            <Check className="w-12 h-12 text-teal-500 mx-auto mb-4" />
+            <p className="text-white font-medium mb-2">All faces processed!</p>
+            <p className="text-charcoal-400">
+              {faceCounts.named} named • {faceCounts.skipped} skipped
+            </p>
+          </>
+        ) : (
+          <>
+            <Users className="w-12 h-12 text-charcoal-500 mx-auto mb-4" />
+            <p className="text-charcoal-400">No unnamed faces to review</p>
+          </>
+        )}
       </Card>
     );
   }
@@ -288,11 +384,38 @@ export function FaceNaming({
         <div>
           <h2 className="text-xl font-serif text-white">Name Faces</h2>
           <p className="text-sm text-charcoal-400">
-            {faceGroups.length} face groups • {namedCount} processed
+            {faceGroups.length} remaining • {namedCount} ready to save
+            {(faceCounts.named > 0 || faceCounts.skipped > 0) && (
+              <span className="text-teal-400 ml-2">
+                ({faceCounts.named} named, {faceCounts.skipped} skipped previously)
+              </span>
+            )}
           </p>
         </div>
 
         <div className="flex items-center gap-3">
+          {!hasMatched && faceGroups.length > 0 && (
+            <Button
+              variant="outline"
+              onClick={handleMatchWithAI}
+              disabled={isMatching}
+            >
+              {isMatching ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Wand2 className="w-4 h-4 mr-2" />
+              )}
+              {isMatching ? "Matching..." : "Match with AI"}
+            </Button>
+          )}
+
+          {hasMatched && (
+            <Badge variant="success" className="py-1">
+              <Check className="w-3 h-3 mr-1" />
+              AI Matched
+            </Badge>
+          )}
+
           {lastAction && (
             <Button
               variant="ghost"
@@ -352,41 +475,40 @@ export function FaceNaming({
       </AnimatePresence>
 
       {/* Face Groups Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
         {faceGroups.map((group, index) => (
           <motion.div
             key={group.clusterId}
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: index * 0.05 }}
+            transition={{ delay: index * 0.02 }}
           >
             <Card
               variant={group.selectedChildId || group.newChildName || group.isSkipped ? "glass" : "default"}
               className={cn(
-                "p-4 transition-all cursor-pointer",
+                "p-3 transition-all cursor-pointer",
                 index === activeGroupIndex && "ring-2 ring-gold-500",
                 group.selectedChildId && "border-teal-500/50",
                 group.isSkipped && "border-charcoal-600 opacity-50"
               )}
               onClick={() => setActiveGroupIndex(index)}
             >
-              {/* Face thumbnails */}
-              <div className="flex gap-2 mb-4 overflow-x-auto pb-2">
-                {group.faces.slice(0, 5).map((face) => (
+              {/* Face thumbnail - LARGE and centered */}
+              <div className="flex justify-center mb-3">
+                <div className="relative">
                   <img
-                    key={face.id}
-                    src={face.cropUrl}
+                    src={group.faces[0]?.cropUrl}
                     alt=""
-                    className="w-16 h-16 rounded-lg object-cover flex-shrink-0"
+                    className="w-32 h-32 rounded-xl object-cover"
                   />
-                ))}
-                {group.faces.length > 5 && (
-                  <div className="w-16 h-16 rounded-lg bg-charcoal-800 flex items-center justify-center flex-shrink-0">
-                    <span className="text-sm text-charcoal-400">
-                      +{group.faces.length - 5}
-                    </span>
-                  </div>
-                )}
+                  {group.faces.length > 1 && (
+                    <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-charcoal-700 border-2 border-charcoal-900 flex items-center justify-center">
+                      <span className="text-xs text-charcoal-300">
+                        +{group.faces.length - 1}
+                      </span>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Status indicators */}
@@ -412,27 +534,60 @@ export function FaceNaming({
               {/* Name buttons */}
               {!group.isSkipped && (
                 <div className="space-y-2">
-                  {/* Existing children as pressable buttons */}
-                  <div className="flex flex-wrap gap-2">
-                    {existingChildren.slice(0, 9).map((child, childIndex) => (
-                      <button
-                        key={child.id}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleSelectChild(group.clusterId, child.id);
-                        }}
-                        className={cn(
-                          "px-3 py-1.5 text-sm rounded-full transition-all",
-                          group.selectedChildId === child.id
-                            ? "bg-teal-500 text-white"
-                            : "bg-charcoal-800 text-charcoal-300 hover:bg-charcoal-700"
-                        )}
-                      >
-                        <span className="text-xs text-charcoal-500 mr-1">{childIndex + 1}</span>
-                        {child.firstName}
-                      </button>
-                    ))}
-                  </div>
+                  {/* AI Suggestions (if available) */}
+                  {group.suggestions.length > 0 && (
+                    <div className="space-y-1">
+                      {group.suggestions.map((suggestion, idx) => (
+                        <button
+                          key={suggestion.childId}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleSelectChild(group.clusterId, suggestion.childId);
+                          }}
+                          className={cn(
+                            "w-full px-3 py-1.5 text-sm rounded-lg transition-all flex items-center justify-between",
+                            group.selectedChildId === suggestion.childId
+                              ? getConfidenceColor(suggestion.similarity)
+                              : idx === 0 && suggestion.similarity >= 0.85
+                              ? getConfidenceColor(suggestion.similarity) + " ring-2 ring-offset-2 ring-offset-charcoal-900"
+                              : "bg-charcoal-800 text-charcoal-300 hover:bg-charcoal-700"
+                          )}
+                        >
+                          <span>{suggestion.childName}</span>
+                          <span className={cn(
+                            "text-xs px-1.5 py-0.5 rounded",
+                            suggestion.similarity >= 0.85 ? "bg-black/20" : "bg-charcoal-700"
+                          )}>
+                            {formatSimilarity(suggestion.similarity)}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Existing children as pressable buttons (when no AI suggestions) */}
+                  {group.suggestions.length === 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {existingChildren.slice(0, 9).map((child, childIndex) => (
+                        <button
+                          key={child.id}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleSelectChild(group.clusterId, child.id);
+                          }}
+                          className={cn(
+                            "px-3 py-1.5 text-sm rounded-full transition-all",
+                            group.selectedChildId === child.id
+                              ? "bg-teal-500 text-white"
+                              : "bg-charcoal-800 text-charcoal-300 hover:bg-charcoal-700"
+                          )}
+                        >
+                          <span className="text-xs text-charcoal-500 mr-1">{childIndex + 1}</span>
+                          {child.firstName}
+                        </button>
+                      ))}
+                    </div>
+                  )}
 
                   {/* Actions row */}
                   <div className="flex gap-2 pt-2 border-t border-charcoal-700">
