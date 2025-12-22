@@ -230,6 +230,9 @@ export async function getPhotosForFamily(familyId: string) {
  * Save discovered faces to database
  * Uses upsert to prevent duplicates on re-run
  * Returns face IDs for clustering
+ *
+ * NOTE: Uses service role to bypass RLS - this is a server action
+ * that handles batch face discovery which needs admin-level access
  */
 export async function saveDiscoveredFaces(
   sessionId: string,
@@ -241,7 +244,14 @@ export async function saveDiscoveredFaces(
     detectionScore: number;
   }>
 ): Promise<string[]> {
-  const supabase = await createClient();
+  // Use service role client to bypass RLS for batch operations
+  const { createClient: createServiceClient } = await import("@supabase/supabase-js");
+  const supabase = createServiceClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+
+  console.log(`[saveDiscoveredFaces] Saving ${faces.length} faces for session ${sessionId}`);
 
   const insertData = faces.map(face => ({
     session_id: sessionId,
@@ -267,9 +277,16 @@ export async function saveDiscoveredFaces(
     .select("id");
 
   if (error) {
-    console.error("Error saving discovered faces:", error);
-    throw new Error("Failed to save discovered faces");
+    console.error("[saveDiscoveredFaces] Error:", {
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+    });
+    throw new Error(`Failed to save discovered faces: ${error.message}`);
   }
+
+  console.log(`[saveDiscoveredFaces] Successfully saved ${data?.length || 0} faces`);
 
   revalidatePath("/admin/faces");
 
