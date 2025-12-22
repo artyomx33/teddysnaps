@@ -77,6 +77,14 @@ export function FaceNaming({
   const [faceCounts, setFaceCounts] = useState({ total: 0, named: 0, skipped: 0, remaining: 0 });
   const [isMatching, setIsMatching] = useState(false);
   const [hasMatched, setHasMatched] = useState(false);
+  const [currentPage, setCurrentPage] = useState(0);
+  const FACES_PER_PAGE = 24;
+
+  const totalPages = Math.ceil(faceGroups.length / FACES_PER_PAGE);
+  const paginatedGroups = faceGroups.slice(
+    currentPage * FACES_PER_PAGE,
+    (currentPage + 1) * FACES_PER_PAGE
+  );
 
   useEffect(() => {
     loadData();
@@ -315,7 +323,8 @@ export function FaceNaming({
     setSaving(true);
 
     try {
-      for (const group of faceGroups) {
+      // Only save faces on current page
+      for (const group of paginatedGroups) {
         if (group.isSkipped) {
           await skipCluster(group.clusterId, sessionId);
         } else if (group.selectedChildId) {
@@ -332,7 +341,14 @@ export function FaceNaming({
         }
       }
 
-      onComplete();
+      // If more pages, advance to next. Otherwise complete.
+      if (currentPage < totalPages - 1) {
+        setCurrentPage(currentPage + 1);
+        // Reload data to refresh the list (removes saved faces)
+        await loadData();
+      } else {
+        onComplete();
+      }
     } catch (error) {
       console.error("Error saving names:", error);
     } finally {
@@ -340,7 +356,7 @@ export function FaceNaming({
     }
   };
 
-  const namedCount = faceGroups.filter(
+  const pageNamedCount = paginatedGroups.filter(
     (g) => g.selectedChildId || (g.isCreatingNew && g.newChildName.trim()) || g.isSkipped
   ).length;
 
@@ -384,7 +400,7 @@ export function FaceNaming({
         <div>
           <h2 className="text-xl font-serif text-white">Name Faces</h2>
           <p className="text-sm text-charcoal-400">
-            {faceGroups.length} remaining • {namedCount} ready to save
+            {faceGroups.length} remaining • {pageNamedCount} ready to save
             {(faceCounts.named > 0 || faceCounts.skipped > 0) && (
               <span className="text-teal-400 ml-2">
                 ({faceCounts.named} named, {faceCounts.skipped} skipped previously)
@@ -439,14 +455,14 @@ export function FaceNaming({
           <Button
             variant="primary"
             onClick={handleSaveAll}
-            disabled={saving || namedCount === 0}
+            disabled={saving || pageNamedCount === 0}
           >
             {saving ? (
               <Loader2 className="w-4 h-4 mr-2 animate-spin" />
             ) : (
               <Save className="w-4 h-4 mr-2" />
             )}
-            Save All ({namedCount})
+            Save Page ({pageNamedCount})
           </Button>
         </div>
       </div>
@@ -476,7 +492,7 @@ export function FaceNaming({
 
       {/* Face Groups Grid */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-        {faceGroups.map((group, index) => (
+        {paginatedGroups.map((group, index) => (
           <motion.div
             key={group.clusterId}
             initial={{ opacity: 0, y: 10 }}
@@ -649,6 +665,31 @@ export function FaceNaming({
           </motion.div>
         ))}
       </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-4 pt-4">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setCurrentPage(Math.max(0, currentPage - 1))}
+            disabled={currentPage === 0}
+          >
+            Previous
+          </Button>
+          <span className="text-charcoal-400">
+            Page {currentPage + 1} of {totalPages}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setCurrentPage(Math.min(totalPages - 1, currentPage + 1))}
+            disabled={currentPage === totalPages - 1}
+          >
+            Next
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
