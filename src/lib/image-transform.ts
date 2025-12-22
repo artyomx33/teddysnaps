@@ -7,6 +7,10 @@
  * Docs: https://supabase.com/docs/guides/storage/serving/image-transformations
  */
 
+// Set to true once Image Transformations are enabled in Supabase dashboard
+// Go to: Settings > Storage > Enable Image Transformations
+const TRANSFORMS_ENABLED = true;
+
 type ImageFormat = 'webp' | 'avif' | 'jpeg' | 'png';
 type ResizeMode = 'cover' | 'contain' | 'fill';
 
@@ -29,6 +33,11 @@ export function getTransformedUrl(
   originalUrl: string,
   options: TransformOptions = {}
 ): string {
+  // Return original if transforms not enabled
+  if (!TRANSFORMS_ENABLED) {
+    return originalUrl;
+  }
+
   const {
     width,
     height,
@@ -53,7 +62,9 @@ export function getTransformedUrl(
   if (width) params.set('width', width.toString());
   if (height) params.set('height', height.toString());
   params.set('quality', quality.toString());
-  params.set('format', format);
+  // Note: Supabase uses 'origin' to keep original format, not 'webp'/'avif' directly
+  // Omitting format lets Supabase auto-optimize based on browser Accept headers
+  if (format !== 'webp') params.set('format', format);
   params.set('resize', resize);
 
   return `${transformUrl}?${params.toString()}`;
@@ -63,19 +74,19 @@ export function getTransformedUrl(
  * Preset transformations for common use cases
  */
 export const imagePresets = {
-  /** Grid thumbnail: 400px wide, WebP, 70% quality (~30-50KB) */
+  /** Grid thumbnail: 300px, low quality, full image - anti-screenshot (~20-30KB) */
   thumbnail: (url: string) =>
-    getTransformedUrl(url, { width: 400, quality: 70 }),
+    getTransformedUrl(url, { width: 300, quality: 55, resize: 'contain' }),
 
-  /** Medium preview: 800px wide, WebP, 80% quality (~80-120KB) */
+  /** Medium preview: 500px, medium quality, full image (~50-80KB) */
   preview: (url: string) =>
-    getTransformedUrl(url, { width: 800, quality: 80 }),
+    getTransformedUrl(url, { width: 500, quality: 65, resize: 'contain' }),
 
-  /** Lightbox view: 1200px wide, WebP, 85% quality (~150-250KB) */
+  /** Lightbox view: 800px, better quality, full image (~100-150KB) */
   lightbox: (url: string) =>
-    getTransformedUrl(url, { width: 1200, quality: 85 }),
+    getTransformedUrl(url, { width: 800, quality: 75, resize: 'contain' }),
 
-  /** High quality for purchase preview: 1600px, 90% quality */
+  /** High quality for purchase preview: 1200px, good quality */
   highQuality: (url: string) =>
-    getTransformedUrl(url, { width: 1600, quality: 90 }),
+    getTransformedUrl(url, { width: 1200, quality: 85, resize: 'contain' }),
 };

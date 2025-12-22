@@ -56,11 +56,11 @@ export async function createPayment({
       paymentData.webhookUrl = webhookUrl;
     }
 
-    const payment = await mollieClient.payments.create(paymentData);
+    const payment = await mollieClient.payments.create(paymentData as any);
 
     return {
       paymentId: payment.id,
-      checkoutUrl: payment.getCheckoutUrl() || "",
+      checkoutUrl: (payment as any).getCheckoutUrl?.() || (payment as any)._links?.checkout?.href || "",
     };
   } catch (error) {
     console.error("Failed to create Mollie payment:", error);
