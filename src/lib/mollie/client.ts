@@ -1,4 +1,5 @@
 import createMollieClient from "@mollie/api-client";
+import type { CreateParameters } from "@mollie/api-client/dist/types/binders/payments/parameters";
 
 if (!process.env.MOLLIE_API_KEY) {
   console.warn("MOLLIE_API_KEY not set - payment features will not work");
@@ -38,7 +39,7 @@ export async function createPayment({
     // Check if webhook URL is reachable (skip localhost in test mode)
     const isLocalhost = webhookUrl?.includes("localhost");
 
-    const paymentData: Record<string, unknown> = {
+    const paymentData: CreateParameters = {
       amount: {
         currency: "EUR",
         value: amount.toFixed(2), // Mollie requires string with 2 decimals
@@ -49,18 +50,15 @@ export async function createPayment({
         orderId,
         orderNumber,
       },
+      // Only include webhookUrl if it's not localhost (Mollie can't reach it)
+      ...(webhookUrl && !isLocalhost ? { webhookUrl } : {}),
     };
 
-    // Only include webhookUrl if it's not localhost (Mollie can't reach it)
-    if (webhookUrl && !isLocalhost) {
-      paymentData.webhookUrl = webhookUrl;
-    }
-
-    const payment = await mollieClient.payments.create(paymentData as any);
+    const payment = await mollieClient.payments.create(paymentData);
 
     return {
       paymentId: payment.id,
-      checkoutUrl: (payment as any).getCheckoutUrl?.() || (payment as any)._links?.checkout?.href || "",
+      checkoutUrl: payment.getCheckoutUrl() || "",
     };
   } catch (error) {
     console.error("Failed to create Mollie payment:", error);
