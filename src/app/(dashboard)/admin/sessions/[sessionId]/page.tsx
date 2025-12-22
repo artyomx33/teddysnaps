@@ -14,6 +14,7 @@ import {
   CheckCircle,
   Grid,
   List,
+  Scan,
 } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -23,6 +24,7 @@ import { Card, CardContent, Button, Badge } from "@/components/ui";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { imagePresets } from "@/lib/image-transform";
+import { FaceDiscovery } from "@/components/faces";
 
 interface Photo {
   id: string;
@@ -61,6 +63,7 @@ export default function SessionDetailPage() {
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
+  const [showDiscovery, setShowDiscovery] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -222,6 +225,14 @@ export default function SessionDetailPage() {
                 </button>
               </div>
 
+              <Button
+                variant="secondary"
+                onClick={() => setShowDiscovery(!showDiscovery)}
+              >
+                <Scan className="w-4 h-4 mr-2" />
+                Discover Faces
+              </Button>
+
               <Link href={`/admin/upload?session=${sessionId}`}>
                 <Button variant="primary">
                   <Upload className="w-4 h-4 mr-2" />
@@ -230,6 +241,23 @@ export default function SessionDetailPage() {
               </Link>
             </div>
           </div>
+
+          {/* Face Discovery */}
+          {showDiscovery && (
+            <div className="mb-6">
+              <FaceDiscovery
+                sessionId={sessionId}
+                photos={photos.map((p) => ({
+                  id: p.id,
+                  url: p.original_url,
+                }))}
+                onComplete={(count) => {
+                  setShowDiscovery(false);
+                  // Optionally show success message or navigate
+                }}
+              />
+            </div>
+          )}
 
           {photos.length === 0 ? (
             <Card variant="glass" className="p-12 text-center">
