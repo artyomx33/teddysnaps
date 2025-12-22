@@ -257,34 +257,23 @@ export async function saveDiscoveredFaces(
     is_skipped: false,
   }));
 
-  // Insert faces one by one to handle duplicates gracefully
-  const insertedIds: string[] = [];
+  // Use upsert to handle re-runs (same bbox = same face)
+  const { data, error } = await supabase
+    .from("discovered_faces")
+    .upsert(insertData, {
+      onConflict: "photo_id,bbox_x,bbox_y,bbox_width,bbox_height",
+      ignoreDuplicates: true,
+    })
+    .select("id");
 
-  for (const face of insertData) {
-    const { data, error } = await supabase
-      .from("discovered_faces")
-      .insert(face)
-      .select("id")
-      .single();
-
-    if (error) {
-      // Ignore duplicate key errors (face already exists)
-      if (error.code === "23505") {
-        console.log("Face already exists, skipping:", face.photo_id);
-        continue;
-      }
-      console.error("Error saving discovered face:", error);
-      throw new Error(`Failed to save discovered face: ${error.message}`);
-    }
-
-    if (data) {
-      insertedIds.push(data.id);
-    }
+  if (error) {
+    console.error("Error saving discovered faces:", error);
+    throw new Error("Failed to save discovered faces");
   }
 
   revalidatePath("/admin/faces");
 
-  return insertedIds;
+  return data?.map(d => d.id) || [];
 }
 
 /**
