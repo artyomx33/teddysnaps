@@ -8,3 +8,5 @@ export {
   arrayToDescriptor,
 } from "./processor";
 export type { ProcessedPhoto, ProcessingProgress } from "./processor";
+export { extractFaceCrop, extractAllFaceCrops } from "./cropper";
+export type { FaceCrop } from "./cropper";
