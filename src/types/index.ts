@@ -61,6 +61,34 @@ export interface PhotoChild {
   created_at: string;
 }
 
+export interface DiscoveredFace {
+  id: string;
+  session_id: string;
+  photo_id: string;
+  face_descriptor: number[];
+  crop_url: string;
+  detection_score: number;
+  bbox_x: number;
+  bbox_y: number;
+  bbox_width: number;
+  bbox_height: number;
+  cluster_id: string | null;
+  child_id: string | null;
+  confidence: number | null;
+  is_named: boolean;
+  is_skipped: boolean;
+  created_at: string;
+}
+
+export interface FaceCluster {
+  cluster_id: string;
+  faces: DiscoveredFace[];
+  child_id: string | null;
+  child_name: string | null;
+  representative_crop_url: string;
+  face_count: number;
+}
+
 export interface Product {
   id: string;
   name: string;
