@@ -174,7 +174,7 @@ export async function uploadFaceCrop(
   const filename = `faces/${sessionId}/${faceId}.webp`;
 
   const { error } = await supabase.storage
-    .from("photos")
+    .from("photos-originals")
     .upload(filename, blob, {
       contentType: "image/webp",
       upsert: true,
@@ -186,7 +186,7 @@ export async function uploadFaceCrop(
   }
 
   const { data: publicUrl } = supabase.storage
-    .from("photos")
+    .from("photos-originals")
     .getPublicUrl(filename);
 
   return publicUrl.publicUrl;
