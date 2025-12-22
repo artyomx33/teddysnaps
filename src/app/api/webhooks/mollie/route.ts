@@ -2,13 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { mollieClient } from "@/lib/mollie/client";
 import { createClient } from "@supabase/supabase-js";
 
-// Use service role for webhook (no user session)
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+// Create client inside function to avoid build-time evaluation
+function getSupabaseClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+}
 
 export async function POST(request: NextRequest) {
+  const supabase = getSupabaseClient();
   try {
     const formData = await request.formData();
     const paymentId = formData.get("id") as string;

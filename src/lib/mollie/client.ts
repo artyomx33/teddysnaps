@@ -1,13 +1,30 @@
 import createMollieClient from "@mollie/api-client";
 import type { CreateParameters } from "@mollie/api-client/dist/types/binders/payments/parameters";
+import type { MollieClient } from "@mollie/api-client";
 
-if (!process.env.MOLLIE_API_KEY) {
-  console.warn("MOLLIE_API_KEY not set - payment features will not work");
+// Lazy initialize to avoid build-time evaluation
+let _mollieClient: MollieClient | null = null;
+
+function getMollieClient(): MollieClient {
+  if (!_mollieClient) {
+    if (!process.env.MOLLIE_API_KEY) {
+      throw new Error("MOLLIE_API_KEY not set - payment features require this env var");
+    }
+    _mollieClient = createMollieClient({
+      apiKey: process.env.MOLLIE_API_KEY,
+    });
+  }
+  return _mollieClient;
 }
 
-export const mollieClient = createMollieClient({
-  apiKey: process.env.MOLLIE_API_KEY || "test_placeholder",
-});
+export const mollieClient = {
+  get payments() {
+    return getMollieClient().payments;
+  },
+  get methods() {
+    return getMollieClient().methods;
+  },
+};
 
 export interface CreatePaymentParams {
   orderId: string;
