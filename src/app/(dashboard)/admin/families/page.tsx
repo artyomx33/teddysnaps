@@ -18,6 +18,7 @@ import {
   ArrowLeftRight,
   AlertTriangle,
   Camera,
+  Phone,
 } from "lucide-react";
 import { AnimatePresence } from "framer-motion";
 import { Sidebar } from "@/components/layout/sidebar";
@@ -638,6 +639,12 @@ export default function FamiliesPage() {
                         {family.email && (
                           <span className="text-sm text-charcoal-400">
                             {family.email}
+                          </span>
+                        )}
+                        {family.phone && (
+                          <span className="text-sm text-charcoal-400 inline-flex items-center gap-1">
+                            <Phone className="w-3.5 h-3.5 text-charcoal-500" />
+                            {family.phone}
                           </span>
                         )}
                         <Button

@@ -83,6 +83,13 @@ export default function GalleryPage() {
         }
         setFamily(familyData);
 
+        // Require email before allowing access to a session folder (prevents bypassing the entry gate).
+        if (!familyData.email || !familyData.email.trim()) {
+          setError("Please add your email on the access page before viewing this session.");
+          setLoading(false);
+          return;
+        }
+
         // Fetch session
         const sessionData = await getSession(sessionId);
         if (!sessionData) {
@@ -272,8 +279,8 @@ export default function GalleryPage() {
               Unable to Load Gallery
             </h1>
             <p className="text-charcoal-400 mb-6">{error}</p>
-            <Link href="/">
-              <Button variant="primary">Return Home</Button>
+            <Link href="/gallery">
+              <Button variant="primary">Return to Access</Button>
             </Link>
           </CardContent>
         </Card>
@@ -295,8 +302,8 @@ export default function GalleryPage() {
               We&apos;re currently sorting and confirming photos for your family.
               Please check back a bit later.
             </p>
-            <Link href="/">
-              <Button variant="primary">Return Home</Button>
+            <Link href="/gallery">
+              <Button variant="primary">Return to Access</Button>
             </Link>
           </CardContent>
         </Card>
