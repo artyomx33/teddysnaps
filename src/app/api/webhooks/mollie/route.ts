@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { mollieClient } from "@/lib/mollie/client";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createEntitlementsAndRetouchTasksForOrder } from "@/lib/retouch/entitlements";
+import { sendOrderConfirmationEmail } from "@/lib/email/send";
 
 export const runtime = "nodejs";
 
@@ -134,6 +135,80 @@ export async function POST(request: NextRequest) {
       const res = await createEntitlementsAndRetouchTasksForOrder(orderId);
       if (!res.ok) {
         console.error("[mollie webhook] Failed to create retouch tasks:", res.message);
+      }
+
+      // Send order confirmation email
+      try {
+        // Fetch order details with family and children info
+        const { data: orderData } = await supabase
+          .from("orders")
+          .select(`
+            id,
+            total_amount,
+            session_id,
+            family:families!inner (
+              id,
+              email,
+              parent_name,
+              children (
+                id,
+                first_name
+              )
+            )
+          `)
+          .eq("id", orderId)
+          .single();
+
+        if (orderData?.family) {
+          // Family comes as object from !inner join
+          const familyRaw = orderData.family as unknown as {
+            id: string;
+            email: string | null;
+            parent_name: string | null;
+            children: Array<{ id: string; first_name: string }>;
+          };
+
+          // Count entitlements for this order
+          const { count: photoCount } = await supabase
+            .from("photo_entitlements")
+            .select("id", { count: "exact", head: true })
+            .eq("order_id", orderId);
+
+          if (familyRaw.email) {
+            const childName = familyRaw.children?.[0]?.first_name || "je kind";
+            const parentName = familyRaw.parent_name || "Ouder";
+            const baseUrl = process.env.NEXT_PUBLIC_URL || "https://snaps.teddykids.nl";
+
+            // Get family code for gallery URL
+            const { data: familyData } = await supabase
+              .from("families")
+              .select("access_code")
+              .eq("id", familyRaw.id)
+              .single();
+
+            const galleryUrl = familyData?.access_code
+              ? `${baseUrl}/gallery/${orderData.session_id}/${familyData.access_code}`
+              : baseUrl;
+
+            const emailResult = await sendOrderConfirmationEmail({
+              to: familyRaw.email,
+              parentName,
+              childName,
+              photoCount: photoCount || 0,
+              totalAmount: `€${(orderData.total_amount / 100).toFixed(2).replace(".", ",")}`,
+              galleryUrl,
+            });
+
+            if (emailResult.ok) {
+              console.log(`[mollie webhook] Order confirmation email sent to ${familyRaw.email}`);
+            } else {
+              console.error(`[mollie webhook] Failed to send email: ${emailResult.error}`);
+            }
+          }
+        }
+      } catch (emailError) {
+        // Don't fail the webhook if email fails
+        console.error("[mollie webhook] Error sending confirmation email:", emailError);
       }
     }
 

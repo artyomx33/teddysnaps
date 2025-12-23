@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { motion } from "framer-motion";
 import { KeyRound } from "lucide-react";
 import { Button, Card, CardContent } from "@/components/ui";
@@ -26,15 +27,17 @@ export default function LandingPage() {
             initial={{ scale: 0.8, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             transition={{ duration: 0.5 }}
-            className="mb-8"
+            className="mb-4"
           >
-            <span className="text-6xl">🧸</span>
+            <Image
+              src="/teddysnaps-logo.png"
+              alt="TeddySnaps"
+              width={280}
+              height={280}
+              className="mx-auto"
+              priority
+            />
           </motion.div>
-
-          <h1 className="text-5xl md:text-7xl font-serif mb-6">
-            <span className="text-white">Teddy</span>
-            <span className="text-gradient-gold">Snaps</span>
-          </h1>
 
           <p className="text-xl md:text-2xl text-charcoal-300 mb-4 font-light">
             Precious Moments, Perfectly Preserved

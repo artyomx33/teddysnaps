@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -40,11 +41,17 @@ export function Sidebar({ role }: SidebarProps) {
   return (
     <aside className="fixed left-0 top-0 h-full w-64 bg-charcoal-900 border-r border-charcoal-800 flex flex-col">
       {/* Logo */}
-      <div className="p-6 border-b border-charcoal-800">
+      <div className="p-4 border-b border-charcoal-800">
         <Link href="/" className="flex items-center gap-3">
-          <span className="text-3xl">🧸</span>
+          <Image
+            src="/teddysnaps-logo.png"
+            alt="TeddySnaps"
+            width={48}
+            height={48}
+            className="rounded-lg"
+          />
           <div>
-            <h1 className="text-xl font-serif">
+            <h1 className="text-lg font-serif">
               <span className="text-white">Teddy</span>
               <span className="text-gold-500">Snaps</span>
             </h1>
