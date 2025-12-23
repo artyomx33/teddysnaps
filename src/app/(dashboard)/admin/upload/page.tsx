@@ -102,6 +102,58 @@ export default function UploadPage() {
     const CONCURRENCY_LIMIT = 5; // Upload 5 files at a time
     const supabase = createClient();
     const UPLOAD_TIMEOUT_MS = 90_000;
+    const DB_BATCH_SIZE = 25;
+    const DB_TIMEOUT_MS = 20_000;
+
+    type DbBatchItem = {
+      fileId: string;
+      record: {
+        session_id: string;
+        original_url: string;
+        thumbnail_url: string;
+        filename: string;
+      };
+    };
+
+    const dbQueue: DbBatchItem[] = [];
+    let flushing = false;
+    const flushDbQueue = async () => {
+      if (flushing) return;
+      if (dbQueue.length === 0) return;
+
+      flushing = true;
+      try {
+        while (dbQueue.length > 0) {
+          const batch = dbQueue.splice(0, DB_BATCH_SIZE);
+          const records = batch.map((b) => b.record);
+
+          const insertPromise = supabase.from("photos").insert(records);
+          const timeoutPromise = new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error("DB insert timed out")), DB_TIMEOUT_MS)
+          );
+
+          const { error: dbError } = await Promise.race([insertPromise, timeoutPromise]);
+          if (dbError) throw dbError;
+
+          // Mark files complete
+          for (const b of batch) {
+            updateFile(b.fileId, { status: "complete", progress: 100, error: undefined });
+          }
+        }
+      } catch (error) {
+        // If the batch insert fails, mark those files as error so user can retry.
+        const message = error instanceof Error ? error.message : "DB insert failed";
+        console.error("DB batch insert failed:", error);
+        // Put all currently pending items (including those already spliced out) into error.
+        // Note: if this fails, user can retry and the deterministic storage path will upsert.
+        for (const b of dbQueue) {
+          updateFile(b.fileId, { status: "error", error: message });
+        }
+        dbQueue.length = 0;
+      } finally {
+        flushing = false;
+      }
+    };
 
     // Upload a single file
     const uploadSingleFile = async (file: typeof pendingFiles[0]) => {
@@ -148,19 +200,22 @@ export default function UploadPage() {
         const originalUrl = publicUrl.publicUrl;
         const thumbnailUrl = publicUrl.publicUrl;
 
-        const { error: dbError } = await supabase.from("photos").insert({
-          session_id: sessionId,
-          original_url: originalUrl,
-          thumbnail_url: thumbnailUrl,
-          filename: file.file.name,
+        if (progressInterval) clearInterval(progressInterval);
+
+        // Queue DB insert and mark as processing while we batch-write.
+        updateFile(file.id, { status: "processing", progress: 95, error: undefined });
+        dbQueue.push({
+          fileId: file.id,
+          record: {
+            session_id: sessionId,
+            original_url: originalUrl,
+            thumbnail_url: thumbnailUrl,
+            filename: file.file.name,
+          },
         });
 
-        if (dbError) {
-          throw dbError;
-        }
-
-        if (progressInterval) clearInterval(progressInterval);
-        updateFile(file.id, { status: "complete", progress: 100 });
+        // Best-effort flush (won't re-enter if already flushing)
+        await flushDbQueue();
       } catch (error) {
         console.error("Upload failed:", error);
         const message =
@@ -195,6 +250,9 @@ export default function UploadPage() {
     };
 
     await uploadInBatches();
+
+    // Flush any remaining DB inserts after all uploads finished.
+    await flushDbQueue();
 
     setIsUploading(false);
     setProcessing(false);
