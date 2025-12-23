@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 
-import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient as createSupabaseJsClient } from "@supabase/supabase-js";
 
 type LookupRequest = {
@@ -8,14 +7,7 @@ type LookupRequest = {
 };
 
 function createSupabaseClientForGallery() {
-  // Prefer service role (bypasses RLS + avoids auth/session coupling), but fall back to anon
-  // so production doesn't hard-fail if SUPABASE_SERVICE_ROLE_KEY isn't configured yet.
-  try {
-    return createAdminClient();
-  } catch (e) {
-    console.error("[gallery/lookup] Admin client unavailable, falling back to anon client:", e);
-  }
-
+  // With RLS disabled (see Supabase migration), anon is sufficient and avoids env/key drift.
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!url || !anonKey) {
