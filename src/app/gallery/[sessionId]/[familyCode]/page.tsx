@@ -124,7 +124,7 @@ export default function GalleryPage() {
               id: "fallback-digital-10",
               name: "Digital Edit (HD)",
               type: "digital",
-              price: 2.5,
+              price: 10,
               description:
                 "High‑resolution digital download. Includes retouching on this photo.",
             },
@@ -187,7 +187,7 @@ export default function GalleryPage() {
             id: "fallback-digital-10",
             name: "Digital Edit (HD)",
             type: "digital",
-            price: 2.5,
+            price: 10,
             description:
               "High‑resolution digital download. Includes retouching on this photo.",
           },
@@ -411,6 +411,16 @@ export default function GalleryPage() {
                     {purchasedIds.size} HD
                   </span>
                 </div>
+              )}
+
+              {/* Buy All Photos button */}
+              {bundleProduct && (
+                <button
+                  onClick={buyFullAlbum}
+                  className="px-5 py-3 rounded-xl bg-pink-500 hover:bg-pink-400 text-white font-bold text-base shadow-lg shadow-pink-500/30 transition-all hover:scale-105"
+                >
+                  🎁 All Photos {formatPrice(bundleProduct.price)}
+                </button>
               )}
 
               {/* Cart */}
