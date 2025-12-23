@@ -64,6 +64,7 @@ export default function GalleryPage() {
   const [bundleProduct, setBundleProduct] = useState<DbProduct | null>(null);
   const [productsLoaded, setProductsLoaded] = useState(false);
   const [isLoadingProducts, setIsLoadingProducts] = useState(false);
+  const [pricingError, setPricingError] = useState<string | null>(null);
 
   // Fetch gallery data
   useEffect(() => {
@@ -99,6 +100,7 @@ export default function GalleryPage() {
         setPhotos(photosData);
 
         // Fetch products server-side (service role) so parent pricing always loads.
+        // If nothing is priced (>0), we show a friendly "pricing not configured" message.
         const all = (await getPricedProducts()) as unknown as DbProduct[];
         const digital = all.filter((p) => p.type === "digital" && p.price > 0);
         const priced = (digital.length > 0 ? digital : all).filter((p) => p.price > 0);
@@ -109,9 +111,11 @@ export default function GalleryPage() {
           // Bundle = highest priced item (works for 10 + 50 model).
           const maybeBundle = sorted[sorted.length - 1];
           setBundleProduct(maybeBundle && maybeBundle.id !== sorted[0].id ? maybeBundle : null);
+          setPricingError(null);
         } else {
           setPerPhotoProduct(null);
           setBundleProduct(null);
+          setPricingError("Pricing not configured yet. Please try again in a bit.");
         }
         setProductsLoaded(true);
       } catch (err) {
@@ -142,7 +146,10 @@ export default function GalleryPage() {
       const all = (await getPricedProducts()) as unknown as DbProduct[];
       const digital = all.filter((p) => p.type === "digital" && p.price > 0);
       const priced = (digital.length > 0 ? digital : all).filter((p) => p.price > 0);
-      if (priced.length === 0) return { per: null, bundle: null };
+      if (priced.length === 0) {
+        setPricingError("Pricing not configured yet. Ask TeddySnaps staff to set prices.");
+        return { per: null, bundle: null };
+      }
 
       const sorted = [...priced].sort((a, b) => a.price - b.price);
       const per = sorted[0];
@@ -150,9 +157,11 @@ export default function GalleryPage() {
       setPerPhotoProduct(per);
       setBundleProduct(bundle);
       setProductsLoaded(true);
+      setPricingError(null);
       return { per, bundle };
     } catch (e) {
       console.error("Failed to load products:", e);
+      setPricingError("Failed to load pricing. Please refresh and try again.");
       return { per: null, bundle: null };
     } finally {
       setIsLoadingProducts(false);
@@ -189,6 +198,13 @@ export default function GalleryPage() {
   };
 
   // NOTE: Parent gallery intentionally has no full-size lightbox (avoid "download" UX).
+
+  // If user opens the add-to-cart modal and pricing isn't loaded, fetch it immediately.
+  useEffect(() => {
+    if (!confirmPhoto) return;
+    if (perPhotoProduct) return;
+    void ensureProducts();
+  }, [confirmPhoto]);
 
   // Loading state
   if (loading) {
@@ -468,7 +484,11 @@ export default function GalleryPage() {
                 </div>
                 <div className="mt-4 flex items-center justify-between gap-3">
                   <div className="text-sm text-charcoal-400">
-                    {perPhotoProduct ? perPhotoProduct.name : "Loading pricing..."}
+                    {perPhotoProduct
+                      ? perPhotoProduct.name
+                      : isLoadingProducts
+                      ? "Loading pricing..."
+                      : pricingError || "Pricing not available"}
                   </div>
                   <Button
                     variant="primary"
