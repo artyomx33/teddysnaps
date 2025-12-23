@@ -101,26 +101,41 @@ export default function UploadPage() {
     const pendingFiles = files.filter((f) => f.status === "pending");
     const CONCURRENCY_LIMIT = 5; // Upload 5 files at a time
     const supabase = createClient();
+    const UPLOAD_TIMEOUT_MS = 90_000;
 
     // Upload a single file
     const uploadSingleFile = async (file: typeof pendingFiles[0]) => {
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        updateFile(file.id, { status: "error", error: "Offline. Check Wi‑Fi and retry." });
+        return;
+      }
+
+      let progressInterval: ReturnType<typeof setInterval> | null = null;
+
       try {
         updateFile(file.id, { status: "uploading", progress: 0 });
 
         // Progress simulation (we don't have upload progress events here)
         let simulated = 0;
-        const progressInterval = setInterval(() => {
+        progressInterval = setInterval(() => {
           simulated = Math.min(simulated + 8, 90);
           updateFile(file.id, {
             progress: simulated,
           });
         }, 150);
 
-        const storagePath = `${sessionId}/${crypto.randomUUID()}-${file.file.name}`;
+        // Deterministic path so retries overwrite rather than creating orphan objects.
+        const storagePath = `${sessionId}/${file.id}-${file.file.name}`;
 
-        const { error: uploadError } = await supabase.storage
+        const uploadPromise = supabase.storage
           .from("photos-originals")
-          .upload(storagePath, file.file);
+          .upload(storagePath, file.file, { upsert: true });
+
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("Upload timed out")), UPLOAD_TIMEOUT_MS)
+        );
+
+        const { error: uploadError } = await Promise.race([uploadPromise, timeoutPromise]);
 
         if (uploadError) {
           throw uploadError;
@@ -144,11 +159,16 @@ export default function UploadPage() {
           throw dbError;
         }
 
-        clearInterval(progressInterval);
+        if (progressInterval) clearInterval(progressInterval);
         updateFile(file.id, { status: "complete", progress: 100 });
       } catch (error) {
         console.error("Upload failed:", error);
-        updateFile(file.id, { status: "error", error: "Upload failed" });
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Upload failed";
+        if (progressInterval) clearInterval(progressInterval);
+        updateFile(file.id, { status: "error", error: message });
       }
     };
 
