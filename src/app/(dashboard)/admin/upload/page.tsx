@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, Suspense } from "react";
 import { motion } from "framer-motion";
 import { useSearchParams } from "next/navigation";
 import {
@@ -22,7 +22,7 @@ import { useUploadStore } from "@/stores";
 import { enqueueFaceJob, getFaceJobForSession, type FaceJob } from "@/lib/actions/face-jobs";
 import { createClient } from "@/lib/supabase/client";
 
-export default function UploadPage() {
+function UploadPageContent() {
   const searchParams = useSearchParams();
   const [locations, setLocations] = useState<Array<{ id: string; name: string }>>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -648,5 +648,23 @@ export default function UploadPage() {
         </div>
       </main>
     </div>
+  );
+}
+
+export default function UploadPage() {
+  // Next.js requires useSearchParams() consumers to be wrapped in Suspense in production.
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen">
+          <Sidebar role="admin" />
+          <main className="flex-1 ml-64 flex items-center justify-center">
+            <Loader2 className="w-8 h-8 text-gold-500 animate-spin" />
+          </main>
+        </div>
+      }
+    >
+      <UploadPageContent />
+    </Suspense>
   );
 }

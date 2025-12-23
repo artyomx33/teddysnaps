@@ -39,24 +39,11 @@ type FamilyPhotoMatchRow = {
   photo_id: string;
   child_id: string;
   is_confirmed: boolean;
-  photo?: {
-    id: string;
-    original_url: string;
-    thumbnail_url: string | null;
-    session_id: string;
-    session?: {
-      id: string;
-      name: string;
-      shoot_date: string;
-    };
-  };
-  child?: {
-    id: string;
-    first_name: string;
-  };
-  // Back-compat with older PostgREST embed shapes (arrays)
-  photos?: Array<FamilyPhotoMatchRow["photo"]>;
-  children?: Array<FamilyPhotoMatchRow["child"]>;
+  photo?: PhotoEmbed | PhotoEmbed[];
+  child?: ChildEmbed | ChildEmbed[];
+  // Back-compat with older PostgREST embed shapes
+  photos?: PhotoEmbed | PhotoEmbed[];
+  children?: ChildEmbed | ChildEmbed[];
 };
 
 type FamilyPhoto = {
@@ -69,6 +56,27 @@ type FamilyPhoto = {
   children: Array<{ id: string; firstName: string; isConfirmed: boolean }>;
   confirmedCount: number;
   totalCount: number;
+};
+
+type SessionEmbed = {
+  id: string;
+  name: string;
+  shoot_date: string;
+};
+
+type PhotoEmbed = {
+  id: string;
+  original_url: string;
+  thumbnail_url: string | null;
+  session_id: string;
+  session?: SessionEmbed | SessionEmbed[];
+  // Back-compat
+  photo_sessions?: SessionEmbed | SessionEmbed[];
+};
+
+type ChildEmbed = {
+  id: string;
+  first_name: string;
 };
 
 function firstOf<T>(val: T | T[] | null | undefined): T | null {
@@ -167,9 +175,9 @@ export default function FamilyDetailPage() {
 
       const byPhoto = new Map<string, FamilyPhoto>();
       for (const r of rows) {
-        const photo = firstOf(r.photo ?? (r as { photos?: FamilyPhotoMatchRow["photo"] | Array<FamilyPhotoMatchRow["photo"]> }).photos);
+        const photo = firstOf<PhotoEmbed>(r.photo ?? r.photos);
         if (!photo) continue;
-        const session = firstOf(photo.session ?? (photo as { photo_sessions?: FamilyPhotoMatchRow["photo"] extends { session?: infer S } ? S | S[] : unknown }).photo_sessions);
+        const session = firstOf<SessionEmbed>(photo.session ?? photo.photo_sessions);
 
         const existing =
           byPhoto.get(r.photo_id) ??
@@ -185,7 +193,7 @@ export default function FamilyDetailPage() {
             totalCount: 0,
           } as FamilyPhoto);
 
-        const child = firstOf(r.child ?? (r as { children?: FamilyPhotoMatchRow["child"] | Array<FamilyPhotoMatchRow["child"]> }).children);
+        const child = firstOf<ChildEmbed>(r.child ?? r.children);
         if (child) {
           // Dedup child entries
           const already = existing.children.some((c) => c.id === child.id);
