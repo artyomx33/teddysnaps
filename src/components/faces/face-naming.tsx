@@ -311,11 +311,14 @@ export function FaceNaming({
     setSaving(true);
 
     try {
+      const savedClusterIds: string[] = [];
+
       // Only save faces on current page
       for (const group of paginatedGroups) {
         if (group.selectedChildId) {
           setLastAction({ type: "name", clusterId: group.clusterId, previousState: { ...group } });
           await nameCluster(group.clusterId, group.selectedChildId, sessionId);
+          savedClusterIds.push(group.clusterId);
         } else if (group.isCreatingNew && group.newChildName.trim()) {
           setLastAction({ type: "create", clusterId: group.clusterId, previousState: { ...group } });
           await createChildFromCluster(
@@ -324,13 +327,29 @@ export function FaceNaming({
             group.newChildName.trim(),
             locationId
           );
+          savedClusterIds.push(group.clusterId);
         }
+      }
+
+      // Optimistically remove saved groups immediately so the UI updates instantly.
+      if (savedClusterIds.length > 0) {
+        setFaceGroups((prev) => {
+          const next = prev.filter((g) => !savedClusterIds.includes(g.clusterId));
+          return next;
+        });
+
+        // Keep active selection in range
+        setActiveGroupIndex((prevIdx) => {
+          const nextLen = faceGroups.length - savedClusterIds.length;
+          if (nextLen <= 0) return 0;
+          return Math.min(prevIdx, nextLen - 1);
+        });
       }
 
       // If more pages, advance to next. Otherwise complete.
       if (currentPage < totalPages - 1) {
-        setCurrentPage(currentPage + 1);
-        // Reload data to refresh the list (removes saved faces)
+        // Reload data to refresh the list (server truth), keep user on the same page index.
+        // Advancing pages while removing items can feel jumpy; reload will naturally shift items forward.
         await loadData();
       } else {
         onComplete();

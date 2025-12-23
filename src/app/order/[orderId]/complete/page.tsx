@@ -74,6 +74,7 @@ export default function OrderCompletePage() {
 
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
+  const [autoChecked, setAutoChecked] = useState(false);
   const [isCreatingPayment, setIsCreatingPayment] = useState(false);
   const [isCheckingStatus, setIsCheckingStatus] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -96,6 +97,20 @@ export default function OrderCompletePage() {
       fetchOrder();
     }
   }, [orderId]);
+
+  // In local dev, Mollie webhooks can't reach localhost, so auto-check once on return.
+  useEffect(() => {
+    if (!order) return;
+    if (autoChecked) return;
+    if (order.payment_status === "paid") return;
+    setAutoChecked(true);
+    // Fire and forget; UI already has manual "Check status" too.
+    checkAndUpdatePaymentStatus(orderId)
+      .then((res) => {
+        if (res.status === "paid") window.location.reload();
+      })
+      .catch(() => {});
+  }, [order, autoChecked, orderId]);
 
   const handlePayNow = async () => {
     setIsCreatingPayment(true);

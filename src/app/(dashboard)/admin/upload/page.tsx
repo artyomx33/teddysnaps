@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
+import { useSearchParams } from "next/navigation";
 import {
   Play,
   Pause,
@@ -22,8 +23,10 @@ import { enqueueFaceJob, getFaceJobForSession, type FaceJob } from "@/lib/action
 import { createClient } from "@/lib/supabase/client";
 
 export default function UploadPage() {
+  const searchParams = useSearchParams();
   const [locations, setLocations] = useState<Array<{ id: string; name: string }>>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [attachedSessionName, setAttachedSessionName] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [showAddLocation, setShowAddLocation] = useState(false);
   const [newLocationName, setNewLocationName] = useState("");
@@ -38,6 +41,8 @@ export default function UploadPage() {
     isProcessing,
     setProcessing,
     updateFile,
+    setSessionName,
+    setLocationId,
     getCompleteCount,
     getPendingCount,
   } = useUploadStore();
@@ -61,6 +66,34 @@ export default function UploadPage() {
     }
     fetchLocations();
   }, []);
+
+  // If we navigate here from a specific session (e.g. /admin/upload?session=...), attach uploads to it.
+  useEffect(() => {
+    const sid = searchParams.get("session");
+    if (!sid) return;
+    if (sid === sessionId) return;
+
+    setSessionId(sid);
+
+    // Best effort: load session metadata so the UI clearly shows where uploads will go.
+    (async () => {
+      try {
+        const supabase = createClient();
+        const { data, error } = await supabase
+          .from("photo_sessions")
+          .select("id, name, location_id")
+          .eq("id", sid)
+          .maybeSingle();
+
+        if (error || !data) return;
+        setAttachedSessionName(data.name ?? null);
+        if (data.name) setSessionName(data.name);
+        if (data.location_id) setLocationId(data.location_id);
+      } catch {
+        // ignore
+      }
+    })();
+  }, [searchParams, sessionId, setLocationId, setSessionName]);
 
   const handleAddLocation = async () => {
     if (!newLocationName.trim()) return;
@@ -166,19 +199,28 @@ export default function UploadPage() {
           const batch = dbQueue.splice(0, DB_BATCH_SIZE);
           const records = batch.map((b) => b.record);
 
-          const insertPromise = supabase.from("photos").insert(records);
-          const timeoutPromise = new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error("DB insert timed out")), DB_TIMEOUT_MS)
-          );
+          try {
+            const insertPromise = supabase.from("photos").insert(records);
+            const timeoutPromise = new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error("DB insert timed out")), DB_TIMEOUT_MS)
+            );
 
-          const result = await Promise.race([insertPromise, timeoutPromise]);
-          // supabase-js returns { data, error }, but result could be a thrown timeout
-          const dbError = (result as any)?.error as unknown;
-          if (dbError) throw dbError;
+            const result = await Promise.race([insertPromise, timeoutPromise]);
+            // supabase-js returns { data, error }, but result could be a thrown timeout
+            const dbError = (result as any)?.error as unknown;
+            if (dbError) throw dbError;
 
-          // Mark files complete
-          for (const b of batch) {
-            updateFile(b.fileId, { status: "complete", progress: 100, error: undefined });
+            // Mark files complete
+            for (const b of batch) {
+              updateFile(b.fileId, { status: "complete", progress: 100, error: undefined });
+            }
+          } catch (error) {
+            // Mark the failing batch as error so user can retry.
+            const message = error instanceof Error ? error.message : "DB insert failed";
+            for (const b of batch) {
+              updateFile(b.fileId, { status: "error", error: message });
+            }
+            throw error;
           }
         }
       } catch (error) {
@@ -389,6 +431,7 @@ export default function UploadPage() {
   const hasFiles = files.length > 0;
   const canStartUpload = hasFiles && sessionId && pendingCount > 0;
   const allUploadsComplete = completeCount > 0 && completeCount === files.length;
+  const isAttachedToExistingSession = !!searchParams.get("session") && !!sessionId;
 
   return (
     <div className="flex min-h-screen">
@@ -405,15 +448,26 @@ export default function UploadPage() {
               {sessionId && (
                 <Badge variant="success">
                   <CheckCircle className="w-3 h-3 mr-1" />
-                  Session Created
+                  {isAttachedToExistingSession ? "Uploading to Session" : "Session Created"}
                 </Badge>
               )}
             </div>
 
-            <SessionForm
-              onSubmit={handleSessionCreate}
-              locations={locations}
-            />
+            {isAttachedToExistingSession ? (
+              <Card variant="glass" className="p-4">
+                <p className="text-sm text-charcoal-300">
+                  Uploading into:{" "}
+                  <span className="text-white font-medium">
+                    {attachedSessionName || sessionName || sessionId}
+                  </span>
+                </p>
+                <p className="text-xs text-charcoal-500 mt-1">
+                  Tip: open sessions via Admin → Sessions → “Add Photos” to avoid mixing sessions.
+                </p>
+              </Card>
+            ) : (
+              <SessionForm onSubmit={handleSessionCreate} locations={locations} />
+            )}
 
             {/* Add Location */}
             {showAddLocation ? (

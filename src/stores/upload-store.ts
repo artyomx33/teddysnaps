@@ -84,7 +84,7 @@ export const useUploadStore = create<UploadStore>((set, get) => ({
   clearAll: () => {
     const { files } = get();
     files.forEach((file) => URL.revokeObjectURL(file.preview));
-    set({ files: [], sessionName: "", isProcessing: false });
+    set({ files: [], sessionName: "", locationId: null, isProcessing: false });
   },
 
   getPendingCount: () =>

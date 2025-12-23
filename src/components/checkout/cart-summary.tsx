@@ -41,7 +41,7 @@ export function CartSummary() {
         <div className="space-y-3 max-h-[400px] overflow-y-auto">
           {items.map((item, index) => (
             <motion.div
-              key={`${item.photoId}-${item.productId}`}
+              key={`${item.photoId ?? "bundle"}-${item.productId}`}
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: index * 0.05 }}
@@ -49,11 +49,19 @@ export function CartSummary() {
             >
               {/* Thumbnail */}
               <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0">
-                <img
-                  src={item.thumbnailUrl || item.photoUrl}
-                  alt=""
-                  className="w-full h-full object-cover"
-                />
+                {item.photoId ? (
+                  <img
+                    src={item.thumbnailUrl || item.photoUrl}
+                    alt=""
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="w-full h-full bg-gradient-to-br from-gold-500/30 to-teal-500/20 flex items-center justify-center">
+                    <span className="text-xs text-white font-medium text-center px-2">
+                      ALL
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* Details */}
@@ -67,35 +75,41 @@ export function CartSummary() {
               </div>
 
               {/* Quantity controls */}
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() =>
-                    updateQuantity(
-                      item.photoId,
-                      item.productId,
-                      item.quantity - 1
-                    )
-                  }
-                  className="p-1 text-charcoal-400 hover:text-white transition-colors"
-                >
-                  <Minus className="w-4 h-4" />
-                </button>
-                <span className="w-8 text-center text-white">
-                  {item.quantity}
-                </span>
-                <button
-                  onClick={() =>
-                    updateQuantity(
-                      item.photoId,
-                      item.productId,
-                      item.quantity + 1
-                    )
-                  }
-                  className="p-1 text-charcoal-400 hover:text-white transition-colors"
-                >
-                  <Plus className="w-4 h-4" />
-                </button>
-              </div>
+              {item.photoId ? (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() =>
+                      updateQuantity(
+                        item.photoId,
+                        item.productId,
+                        item.quantity - 1
+                      )
+                    }
+                    className="p-1 text-charcoal-400 hover:text-white transition-colors"
+                  >
+                    <Minus className="w-4 h-4" />
+                  </button>
+                  <span className="w-8 text-center text-white">
+                    {item.quantity}
+                  </span>
+                  <button
+                    onClick={() =>
+                      updateQuantity(
+                        item.photoId,
+                        item.productId,
+                        item.quantity + 1
+                      )
+                    }
+                    className="p-1 text-charcoal-400 hover:text-white transition-colors"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
+                </div>
+              ) : (
+                <div className="text-sm text-charcoal-400">
+                  x{item.quantity}
+                </div>
+              )}
 
               {/* Item total */}
               <p className="w-20 text-right text-white font-medium">
@@ -123,8 +137,8 @@ export function CartSummary() {
           {discount > 0 && (
             <div className="flex justify-between text-green-400">
               <span className="flex items-center gap-2">
-                Family Discount
-                <Badge variant="success">-15%</Badge>
+                Discount
+                <Badge variant="success">Applied</Badge>
               </span>
               <span>-{formatPrice(discount)}</span>
             </div>

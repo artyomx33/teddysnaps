@@ -5,7 +5,7 @@ import { createPayment } from "@/lib/mollie/client";
 import { revalidatePath } from "next/cache";
 
 export interface OrderItem {
-  photoId: string;
+  photoId: string | null;
   productId: string;
   quantity: number;
 }
@@ -27,13 +27,18 @@ export interface CreateOrderInput {
 export async function createOrder(input: CreateOrderInput) {
   const supabase = await createClient();
 
+  // If a "bundle" item is present (photoId is null), treat it as the entire purchase
+  // and ignore any per-photo items (UI should prevent mixing, but enforce server-side too).
+  const bundle = input.items.find((i) => i.photoId === null);
+  const effectiveItems = bundle ? [bundle] : input.items;
+
   // Fetch product prices
   const { data: products, error: productError } = await supabase
     .from("products")
     .select("id, price")
     .in(
       "id",
-      input.items.map((i) => i.productId)
+      effectiveItems.map((i) => i.productId)
     );
 
   if (productError || !products) {
@@ -44,7 +49,7 @@ export async function createOrder(input: CreateOrderInput) {
 
   // Calculate totals
   let subtotal = 0;
-  const orderItems = input.items.map((item) => {
+  const orderItems = effectiveItems.map((item) => {
     const price = productPrices.get(item.productId) || 0;
     const total = price * item.quantity;
     subtotal += total;
@@ -55,9 +60,8 @@ export async function createOrder(input: CreateOrderInput) {
     };
   });
 
-  // Calculate discount (15% for 5+ items)
-  const itemCount = input.items.reduce((sum, i) => sum + i.quantity, 0);
-  const discount = itemCount >= 5 ? subtotal * 0.15 : 0;
+  // No discounts in current pricing model (can be reintroduced later)
+  const discount = 0;
 
   // Add delivery fee if applicable
   const deliveryFee = input.deliveryMethod === "delivery" ? 2.95 : 0;
@@ -120,7 +124,7 @@ export async function createOrder(input: CreateOrderInput) {
   }
 
   // Create Mollie payment
-  const baseUrl = process.env.NEXT_PUBLIC_URL || "http://localhost:8001";
+  const baseUrl = process.env.NEXT_PUBLIC_URL || "http://localhost:3000";
 
   try {
     const { paymentId, checkoutUrl } = await createPayment({

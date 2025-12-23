@@ -8,9 +8,7 @@ import {
   Grid,
   List,
   X,
-  ChevronLeft,
   ChevronRight,
-  ZoomIn,
   Loader2,
 } from "lucide-react";
 import Link from "next/link";
@@ -20,16 +18,24 @@ import { useGalleryStore } from "@/stores";
 import { useCartStore } from "@/stores";
 import { Button, Badge, Card, CardContent } from "@/components/ui";
 import { cn, formatPrice } from "@/lib/utils";
-import { PRODUCTS } from "@/config/pricing";
 import {
   getFamilyByAccessCode,
   getSession,
+  getPricedProducts,
   getPhotosForFamily,
   type Photo,
   type Family,
   type Session,
 } from "@/lib/actions/gallery";
 import { imagePresets } from "@/lib/image-transform";
+
+type DbProduct = {
+  id: string;
+  name: string;
+  type: "digital" | "print" | "canvas" | "book";
+  price: number;
+  description: string | null;
+};
 
 export default function GalleryPage() {
   const params = useParams();
@@ -44,25 +50,20 @@ export default function GalleryPage() {
     setFilter,
     viewMode,
     setViewMode,
-    isLightboxOpen,
-    openLightbox,
-    closeLightbox,
-    selectedPhotoId,
-    nextPhoto,
-    prevPhoto,
     getFilteredPhotos,
     getLikedCount,
-    getSelectedPhoto,
   } = useGalleryStore();
 
   const { addItem, getItemCount, getTotal, setContext } = useCartStore();
 
-  const [showPricing, setShowPricing] = useState(false);
-  const [selectedProduct, setSelectedProduct] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [family, setFamily] = useState<Family | null>(null);
   const [session, setSession] = useState<Session | null>(null);
+  const [perPhotoProduct, setPerPhotoProduct] = useState<DbProduct | null>(null);
+  const [bundleProduct, setBundleProduct] = useState<DbProduct | null>(null);
+  const [productsLoaded, setProductsLoaded] = useState(false);
+  const [isLoadingProducts, setIsLoadingProducts] = useState(false);
 
   // Fetch gallery data
   useEffect(() => {
@@ -96,6 +97,23 @@ export default function GalleryPage() {
         const photosData = await getPhotosForFamily(sessionId, familyData.id);
 
         setPhotos(photosData);
+
+        // Fetch products server-side (service role) so parent pricing always loads.
+        const all = (await getPricedProducts()) as unknown as DbProduct[];
+        const digital = all.filter((p) => p.type === "digital" && p.price > 0);
+        const priced = (digital.length > 0 ? digital : all).filter((p) => p.price > 0);
+
+        if (priced.length > 0) {
+          const sorted = [...priced].sort((a, b) => a.price - b.price);
+          setPerPhotoProduct(sorted[0]);
+          // Bundle = highest priced item (works for 10 + 50 model).
+          const maybeBundle = sorted[sorted.length - 1];
+          setBundleProduct(maybeBundle && maybeBundle.id !== sorted[0].id ? maybeBundle : null);
+        } else {
+          setPerPhotoProduct(null);
+          setBundleProduct(null);
+        }
+        setProductsLoaded(true);
       } catch (err) {
         console.error("Error loading gallery:", err);
         setError("Failed to load gallery. Please try again.");
@@ -110,44 +128,67 @@ export default function GalleryPage() {
   }, [sessionId, familyCode, setPhotos, setContext]);
 
   const filteredPhotos = getFilteredPhotos();
-  const selectedPhoto = getSelectedPhoto();
   const likedCount = getLikedCount();
   const cartCount = getItemCount();
   const cartTotal = getTotal();
+  const [confirmPhoto, setConfirmPhoto] = useState<Photo | null>(null);
 
-  const handleAddToCart = () => {
-    if (!selectedPhoto || !selectedProduct) return;
+  const ensureProducts = async (): Promise<{ per: DbProduct | null; bundle: DbProduct | null }> => {
+    if (perPhotoProduct) return { per: perPhotoProduct, bundle: bundleProduct };
+    if (isLoadingProducts) return { per: null, bundle: null };
 
-    const product = PRODUCTS.find((p) => p.id === selectedProduct);
-    if (!product) return;
+    setIsLoadingProducts(true);
+    try {
+      const all = (await getPricedProducts()) as unknown as DbProduct[];
+      const digital = all.filter((p) => p.type === "digital" && p.price > 0);
+      const priced = (digital.length > 0 ? digital : all).filter((p) => p.price > 0);
+      if (priced.length === 0) return { per: null, bundle: null };
 
-    addItem({
-      photoId: selectedPhoto.id,
-      photoUrl: selectedPhoto.url,
-      thumbnailUrl: selectedPhoto.thumbnailUrl,
-      productId: product.id,
-      productName: product.name,
-      productType: product.type,
-      price: product.price,
-    });
-
-    setShowPricing(false);
-    setSelectedProduct(null);
+      const sorted = [...priced].sort((a, b) => a.price - b.price);
+      const per = sorted[0];
+      const bundle = sorted.length > 1 ? sorted[sorted.length - 1] : null;
+      setPerPhotoProduct(per);
+      setBundleProduct(bundle);
+      setProductsLoaded(true);
+      return { per, bundle };
+    } catch (e) {
+      console.error("Failed to load products:", e);
+      return { per: null, bundle: null };
+    } finally {
+      setIsLoadingProducts(false);
+    }
   };
 
-  // Keyboard navigation
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (!isLightboxOpen) return;
+  const addDefaultToCart = async (photo: Photo) => {
+    const per = perPhotoProduct ?? (await ensureProducts()).per;
+    if (!per) return;
+    addItem({
+      kind: "photo",
+      photoId: photo.id,
+      photoUrl: photo.url,
+      thumbnailUrl: photo.thumbnailUrl,
+      productId: per.id,
+      productName: per.name,
+      productType: per.type,
+      price: per.price,
+    });
+  };
 
-      if (e.key === "Escape") closeLightbox();
-      if (e.key === "ArrowRight") nextPhoto();
-      if (e.key === "ArrowLeft") prevPhoto();
-    };
+  const buyFullAlbum = () => {
+    if (!bundleProduct) return;
+    addItem({
+      kind: "bundle",
+      photoId: null,
+      photoUrl: "",
+      thumbnailUrl: "",
+      productId: bundleProduct.id,
+      productName: bundleProduct.name,
+      productType: bundleProduct.type,
+      price: bundleProduct.price,
+    });
+  };
 
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isLightboxOpen, closeLightbox, nextPhoto, prevPhoto]);
+  // NOTE: Parent gallery intentionally has no full-size lightbox (avoid "download" UX).
 
   // Loading state
   if (loading) {
@@ -322,11 +363,20 @@ export default function GalleryPage() {
               className="relative group"
             >
               <div
+                role="button"
+                tabIndex={0}
                 className={cn(
-                  "relative overflow-hidden rounded-xl cursor-pointer",
+                  "relative overflow-hidden rounded-xl cursor-pointer block w-full text-left outline-none focus:ring-2 focus:ring-gold-500/50",
                   viewMode === "grid" ? "aspect-[4/3]" : "aspect-video"
                 )}
-                onClick={() => openLightbox(photo.id)}
+                onClick={() => setConfirmPhoto(photo)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setConfirmPhoto(photo);
+                  }
+                }}
+                aria-label="Add photo to cart"
               >
                 <img
                   src={imagePresets.thumbnail(photo.thumbnailUrl)}
@@ -334,10 +384,23 @@ export default function GalleryPage() {
                   className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                 />
 
-                {/* Overlay on hover */}
-                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                  <ZoomIn className="w-8 h-8 text-white" />
-                </div>
+                {/* Added feedback */}
+                {justAddedId === photo.id && (
+                  <div className="pointer-events-none absolute inset-0 bg-black/50 flex items-center justify-center">
+                    <div className="px-4 py-2 rounded-full bg-gold-500 text-charcoal-950 font-medium">
+                      Added
+                    </div>
+                  </div>
+                )}
+
+                {/* Loading feedback (first tap may need to fetch products) */}
+                {isLoadingProducts && !perPhotoProduct && (
+                  <div className="pointer-events-none absolute inset-0 bg-black/40 flex items-center justify-center">
+                    <div className="px-4 py-2 rounded-full bg-charcoal-900/90 text-white text-sm border border-charcoal-700">
+                      Loading price…
+                    </div>
+                  </div>
+                )}
 
                 {/* Like button */}
                 <button
@@ -356,6 +419,13 @@ export default function GalleryPage() {
                     className={cn("w-5 h-5", photo.isLiked && "fill-current")}
                   />
                 </button>
+
+                {/* Label */}
+                {productsLoaded && perPhotoProduct && (
+                  <div className="pointer-events-none absolute bottom-3 left-3 px-3 py-1.5 rounded-lg bg-black/55 text-white text-sm">
+                    Tap to add {formatPrice(perPhotoProduct.price)}
+                  </div>
+                )}
               </div>
             </motion.div>
           ))}
@@ -371,141 +441,63 @@ export default function GalleryPage() {
         )}
       </main>
 
-      {/* Lightbox */}
+      {/* Confirm modal (single item) */}
       <AnimatePresence>
-        {isLightboxOpen && selectedPhoto && (
+        {confirmPhoto && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center"
+            className="fixed inset-0 z-50 bg-black/70 flex items-end md:items-center justify-center p-4"
+            onClick={() => setConfirmPhoto(null)}
           >
-            {/* Close button */}
-            <button
-              onClick={closeLightbox}
-              className="absolute top-4 right-4 p-2 text-white/70 hover:text-white transition-colors"
-            >
-              <X className="w-8 h-8" />
-            </button>
-
-            {/* Navigation arrows */}
-            <button
-              onClick={prevPhoto}
-              className="absolute left-4 top-1/2 -translate-y-1/2 p-2 text-white/70 hover:text-white transition-colors"
-            >
-              <ChevronLeft className="w-10 h-10" />
-            </button>
-            <button
-              onClick={nextPhoto}
-              className="absolute right-4 top-1/2 -translate-y-1/2 p-2 text-white/70 hover:text-white transition-colors"
-            >
-              <ChevronRight className="w-10 h-10" />
-            </button>
-
-            {/* Image */}
             <motion.div
-              key={selectedPhoto.id}
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              className="max-w-4xl max-h-[80vh] mx-auto px-16"
+              initial={{ y: 20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 20, opacity: 0 }}
+              className="w-full max-w-md bg-charcoal-900 border border-charcoal-800 rounded-2xl overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
             >
-              <img
-                src={imagePresets.lightbox(selectedPhoto.url)}
-                alt=""
-                className="max-w-full max-h-[70vh] object-contain rounded-lg"
-              />
-
-              {/* Actions */}
-              <div className="flex items-center justify-center gap-4 mt-6">
-                <Button
-                  variant={selectedPhoto.isLiked ? "primary" : "outline"}
-                  onClick={() => toggleLike(selectedPhoto.id)}
+              <div className="p-4 flex items-center justify-between">
+                <p className="text-white font-medium">Add to cart</p>
+                <button
+                  className="text-charcoal-400 hover:text-white"
+                  onClick={() => setConfirmPhoto(null)}
                 >
-                  <Heart
-                    className={cn(
-                      "w-5 h-5 mr-2",
-                      selectedPhoto.isLiked && "fill-current"
-                    )}
-                  />
-                  {selectedPhoto.isLiked ? "Liked" : "Like"}
-                </Button>
-
-                <Button variant="primary" onClick={() => setShowPricing(true)}>
-                  <ShoppingCart className="w-5 h-5 mr-2" />
-                  Add to Cart
-                </Button>
+                  <X className="w-5 h-5" />
+                </button>
               </div>
-            </motion.div>
-
-            {/* Pricing Panel */}
-            <AnimatePresence>
-              {showPricing && (
-                <motion.div
-                  initial={{ opacity: 0, x: 100 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: 100 }}
-                  className="absolute right-0 top-0 h-full w-80 bg-charcoal-900 border-l border-charcoal-800 p-6 overflow-y-auto"
-                >
-                  <div className="flex items-center justify-between mb-6">
-                    <h3 className="text-lg font-serif text-white">
-                      Choose Format
-                    </h3>
-                    <button
-                      onClick={() => setShowPricing(false)}
-                      className="text-charcoal-400 hover:text-white"
-                    >
-                      <X className="w-5 h-5" />
-                    </button>
+              <div className="px-4 pb-4">
+                <div className="aspect-[4/3] rounded-xl overflow-hidden bg-charcoal-800">
+                  <img
+                    src={imagePresets.thumbnail(confirmPhoto.thumbnailUrl)}
+                    alt=""
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+                <div className="mt-4 flex items-center justify-between gap-3">
+                  <div className="text-sm text-charcoal-400">
+                    {perPhotoProduct ? perPhotoProduct.name : "Loading pricing..."}
                   </div>
-
-                  <div className="space-y-3">
-                    {PRODUCTS.map((product) => (
-                      <button
-                        key={product.id}
-                        onClick={() => setSelectedProduct(product.id)}
-                        className={cn(
-                          "w-full p-4 rounded-lg border text-left transition-all",
-                          selectedProduct === product.id
-                            ? "border-gold-500 bg-gold-500/10"
-                            : "border-charcoal-700 hover:border-charcoal-600"
-                        )}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="font-medium text-white">
-                              {product.name}
-                            </p>
-                            <p className="text-sm text-charcoal-400">
-                              {product.description}
-                            </p>
-                          </div>
-                          <p className="text-gold-500 font-medium">
-                            {formatPrice(product.price)}
-                          </p>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-
                   <Button
                     variant="primary"
-                    size="lg"
-                    className="w-full mt-6"
-                    disabled={!selectedProduct}
-                    onClick={handleAddToCart}
+                    disabled={!perPhotoProduct}
+                    onClick={async () => {
+                      await addDefaultToCart(confirmPhoto);
+                      setConfirmPhoto(null);
+                    }}
                   >
-                    <ShoppingCart className="w-5 h-5 mr-2" />
-                    Add to Selection
+                    Add {perPhotoProduct ? formatPrice(perPhotoProduct.price) : ""}
                   </Button>
-                </motion.div>
-              )}
-            </AnimatePresence>
+                </div>
+              </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
 
       {/* Bottom Selection Bar */}
-      {(likedCount > 0 || cartCount > 0) && (
+      {(likedCount > 0 || cartCount > 0 || !!bundleProduct) && (
         <motion.div
           initial={{ y: 100 }}
           animate={{ y: 0 }}
@@ -519,6 +511,11 @@ export default function GalleryPage() {
               </span>
               {cartCount > 0 && (
                 <Badge variant="gold">{cartCount} in cart</Badge>
+              )}
+              {bundleProduct && (
+                <Button variant="outline" size="sm" onClick={buyFullAlbum}>
+                  Buy full album {formatPrice(bundleProduct.price)}
+                </Button>
               )}
             </div>
 

@@ -40,6 +40,7 @@ export default function SettingsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [showZeroPriced, setShowZeroPriced] = useState(false);
 
   // New location form
   const [newLocation, setNewLocation] = useState({ name: "", address: "" });
@@ -99,6 +100,15 @@ export default function SettingsPage() {
   const handleUpdateProduct = async (id: string, price: number) => {
     const supabase = createClient();
     await supabase.from("products").update({ price }).eq("id", id);
+    fetchData();
+  };
+
+  const handleUpdateProductFields = async (
+    id: string,
+    patch: Partial<Pick<Product, "name" | "type" | "description" | "price">>
+  ) => {
+    const supabase = createClient();
+    await supabase.from("products").update(patch).eq("id", id);
     fetchData();
   };
 
@@ -240,17 +250,61 @@ export default function SettingsPage() {
               Products & Pricing
             </h2>
 
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm text-charcoal-500">
+                Tip: set a product price to <span className="text-charcoal-300 font-medium">0</span> to hide it from parents.
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowZeroPriced((v) => !v)}
+              >
+                {showZeroPriced ? "Hide €0 products" : "Show €0 products"}
+              </Button>
+            </div>
+
             <div className="space-y-2">
-              {products.map((product) => (
+              {(showZeroPriced ? products : products.filter((p) => p.price > 0)).map((product) => (
                 <Card key={product.id} variant="default" className="p-4">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="font-medium text-white">{product.name}</p>
+                      <Input
+                        value={product.name}
+                        onChange={(e) =>
+                          setProducts((prev) =>
+                            prev.map((p) =>
+                              p.id === product.id ? { ...p, name: e.target.value } : p
+                            )
+                          )
+                        }
+                        onBlur={(e) =>
+                          handleUpdateProductFields(product.id, { name: e.target.value })
+                        }
+                        className="max-w-sm"
+                      />
                       <p className="text-sm text-charcoal-400">
                         {product.description || product.type}
                       </p>
                     </div>
                     <div className="flex items-center gap-3">
+                      <select
+                        value={product.type}
+                        onChange={(e) => {
+                          const nextType = e.target.value;
+                          setProducts((prev) =>
+                            prev.map((p) =>
+                              p.id === product.id ? { ...p, type: nextType } : p
+                            )
+                          );
+                          handleUpdateProductFields(product.id, { type: nextType }).catch(() => {});
+                        }}
+                        className="px-3 py-2 bg-charcoal-900 border border-charcoal-700 rounded-lg text-white"
+                      >
+                        <option value="digital">digital</option>
+                        <option value="print">print</option>
+                        <option value="canvas">canvas</option>
+                        <option value="book">book</option>
+                      </select>
                       <span className="text-charcoal-400">€</span>
                       <Input
                         type="number"
@@ -266,10 +320,9 @@ export default function SettingsPage() {
                           )
                         }
                         onBlur={(e) =>
-                          handleUpdateProduct(
-                            product.id,
-                            parseFloat(e.target.value) || 0
-                          )
+                          handleUpdateProductFields(product.id, {
+                            price: parseFloat(e.target.value) || 0,
+                          })
                         }
                         className="w-24 text-right"
                       />

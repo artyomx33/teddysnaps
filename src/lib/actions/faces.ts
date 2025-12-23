@@ -146,6 +146,32 @@ export async function removeMatch(photoId: string, childId: string) {
 }
 
 /**
+ * Restore one or more photo-child matches (used for Undo in admin review UIs)
+ */
+export async function restoreMatchesForPhoto(
+  photoId: string,
+  matches: Array<{ childId: string; isConfirmed?: boolean; confidence?: number }>
+) {
+  const supabase = await createClient();
+
+  const rows = matches.map((m) => ({
+    photo_id: photoId,
+    child_id: m.childId,
+    is_confirmed: m.isConfirmed ?? false,
+    confidence: m.confidence ?? 1.0,
+  }));
+
+  const { error } = await supabase.from("photo_children").upsert(rows, {
+    onConflict: "photo_id,child_id",
+  });
+
+  if (error) {
+    console.error("Error restoring matches:", error);
+    throw new Error("Failed to restore match(es)");
+  }
+}
+
+/**
  * Get photos for a specific child (for gallery)
  */
 export async function getPhotosForChild(childId: string) {

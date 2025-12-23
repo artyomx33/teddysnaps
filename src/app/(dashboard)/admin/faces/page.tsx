@@ -9,6 +9,7 @@ import {
   ArrowLeft,
   Loader2,
   Check,
+  Server,
 } from "lucide-react";
 import Link from "next/link";
 import { Sidebar } from "@/components/layout/sidebar";
@@ -16,6 +17,7 @@ import { Header } from "@/components/layout/header";
 import { Card, CardContent, Button, Badge } from "@/components/ui";
 import { FaceNaming } from "@/components/faces";
 import { createClient } from "@/lib/supabase/client";
+import { enqueueFaceJob, getFaceJobForSession, type FaceJob } from "@/lib/actions/face-jobs";
 
 interface Session {
   id: string;
@@ -35,6 +37,10 @@ function FacesPageContent() {
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [faceStats, setFaceStats] = useState<Record<string, { total: number; unnamed: number }>>({});
+  const [sessionPhotoCount, setSessionPhotoCount] = useState<number>(0);
+  const [job, setJob] = useState<FaceJob | null>(null);
+  const [jobError, setJobError] = useState<string | null>(null);
+  const [isStartingJob, setIsStartingJob] = useState(false);
 
   useEffect(() => {
     fetchSessions();
@@ -89,6 +95,77 @@ function FacesPageContent() {
     setFaceStats(stats);
     setLoading(false);
   }
+
+  // When a session is selected, load photo count and last job (and poll while queued/running).
+  useEffect(() => {
+    if (!selectedSession) return;
+    const sid = selectedSession.id;
+
+    let timer: ReturnType<typeof setInterval> | null = null;
+
+    const load = async () => {
+      try {
+        const supabase = createClient();
+
+        const [{ count }, currentJob] = await Promise.all([
+          supabase
+            .from("photos")
+            .select("*", { count: "exact", head: true })
+            .eq("session_id", sid),
+          getFaceJobForSession(sid),
+        ]);
+
+        setSessionPhotoCount(count || 0);
+        setJob(currentJob);
+
+        if (currentJob?.status === "failed") {
+          setJobError(currentJob.error || "Face processing failed. Please retry.");
+        } else {
+          setJobError(null);
+        }
+
+        const shouldPoll = currentJob?.status === "queued" || currentJob?.status === "running";
+        if (shouldPoll && !timer) {
+          timer = setInterval(() => {
+            getFaceJobForSession(sid)
+              .then((j) => {
+                setJob(j);
+                if (j?.status === "failed") setJobError(j.error || "Face processing failed. Please retry.");
+                if (j?.status === "complete") {
+                  setJobError(null);
+                  // Refresh stats so the session list updates (faces_total / unnamed counts)
+                  fetchSessions();
+                }
+              })
+              .catch(() => {});
+          }, 1500);
+        }
+      } catch {
+        // ignore
+      }
+    };
+
+    void load();
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [selectedSession?.id]);
+
+  const startOrRerun = async () => {
+    if (!selectedSession) return;
+    if (sessionPhotoCount === 0) return;
+
+    setIsStartingJob(true);
+    setJobError(null);
+    try {
+      const enqueued = await enqueueFaceJob(selectedSession.id);
+      setJob(enqueued);
+    } catch (e) {
+      setJobError("Failed to start server face processing. Please try again.");
+    } finally {
+      setIsStartingJob(false);
+    }
+  };
 
   const handleComplete = () => {
     fetchSessions();
@@ -145,6 +222,53 @@ function FacesPageContent() {
                 <Badge variant="default">
                   {faceStats[selectedSession.id]?.unnamed || 0} faces to name
                 </Badge>
+              </div>
+            </Card>
+
+            {/* Server-side face processing (re-runnable) */}
+            <Card variant="glass" className="p-4 mb-6">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-white font-medium">Server Face Processing</p>
+                  <p className="text-sm text-charcoal-400">
+                    {sessionPhotoCount} photos • extract faces + cluster for naming
+                  </p>
+                  {job && (
+                    <p className="text-xs text-charcoal-500 mt-1">
+                      Status:{" "}
+                      <span className="text-charcoal-300">{job.status}</span>
+                      {typeof job.photos_done === "number" && typeof job.photos_total === "number"
+                        ? ` • ${job.photos_done}/${job.photos_total} photos`
+                        : ""}
+                      {typeof job.faces_total === "number" ? ` • ${job.faces_total} faces` : ""}
+                    </p>
+                  )}
+                  {jobError && (
+                    <p className="text-xs text-red-300 mt-2">{jobError}</p>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Link href={`/admin/sessions/${selectedSession.id}`}>
+                    <Button variant="outline">View Session</Button>
+                  </Link>
+                  <Button
+                    variant="secondary"
+                    onClick={startOrRerun}
+                    disabled={isStartingJob || sessionPhotoCount === 0 || job?.status === "running" || job?.status === "queued"}
+                  >
+                    {isStartingJob ? (
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    ) : (
+                      <Server className="w-4 h-4 mr-2" />
+                    )}
+                    {job?.status === "running" || job?.status === "queued"
+                      ? "Processing…"
+                      : job?.status === "complete"
+                      ? "Re-run"
+                      : "Start"}
+                  </Button>
+                </div>
               </div>
             </Card>
 
@@ -211,6 +335,15 @@ function FacesPageContent() {
                             )}
                           </div>
                         </div>
+                        {stats.total === 0 && (
+                          <p className="text-xs text-charcoal-500 mt-2">
+                            Run{" "}
+                            <span className="text-charcoal-300 font-medium">
+                              Discover Faces
+                            </span>{" "}
+                            from the session page to generate face clusters.
+                          </p>
+                        )}
                       </Card>
                     </motion.div>
                   );

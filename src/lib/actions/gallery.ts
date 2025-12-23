@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export interface Photo {
   id: string;
@@ -28,6 +29,37 @@ export interface Session {
   location: {
     name: string;
   };
+}
+
+export interface Product {
+  id: string;
+  name: string;
+  type: "digital" | "print" | "canvas" | "book";
+  price: number;
+  description: string | null;
+}
+
+export async function getPricedProducts(): Promise<Product[]> {
+  // Use service role so parent gallery can always read pricing even if RLS is not applied yet.
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("products")
+    .select("id, name, type, price, description")
+    .gt("price", 0)
+    .order("price", { ascending: true });
+
+  if (error) {
+    console.error("Error fetching products:", error);
+    return [];
+  }
+
+  return (data || []).map((p: any) => ({
+    id: p.id,
+    name: p.name,
+    type: p.type,
+    price: Number(p.price),
+    description: p.description ?? null,
+  })) as Product[];
 }
 
 // Get family by access code
@@ -155,23 +187,26 @@ export async function getPhotosForFamily(
   const photoMap = new Map<string, Photo>();
 
   for (const match of photoMatches || []) {
+    // PostgREST embed shapes can be either object or array depending on relationship/cardinality.
+    // We alias as `photo:photos!inner`, which is usually a single object.
     const row = match as unknown as {
       is_confirmed?: boolean;
-      photo: Array<{
-        id: string;
-        original_url: string;
-        thumbnail_url: string;
-        session_id: string;
-      }>;
+      photo?:
+        | {
+            id: string;
+            original_url: string;
+            thumbnail_url: string | null;
+            session_id: string;
+          }
+        | Array<{
+            id: string;
+            original_url: string;
+            thumbnail_url: string | null;
+            session_id: string;
+          }>;
     };
 
-    const photoArr = row.photo as Array<{
-      id: string;
-      original_url: string;
-      thumbnail_url: string;
-      session_id: string;
-    }>;
-    const photo = photoArr?.[0];
+    const photo = Array.isArray(row.photo) ? row.photo?.[0] : row.photo;
 
     const isConfirmed = row.is_confirmed === true;
 

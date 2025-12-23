@@ -2,7 +2,8 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 export interface CartItem {
-  photoId: string;
+  kind?: "photo" | "bundle";
+  photoId: string | null;
   photoUrl: string;
   thumbnailUrl: string;
   productId: string;
@@ -19,8 +20,9 @@ interface CartStore {
 
   // Actions
   addItem: (item: Omit<CartItem, "quantity">) => void;
-  removeItem: (photoId: string, productId: string) => void;
-  updateQuantity: (photoId: string, productId: string, quantity: number) => void;
+  addItems: (items: Array<Omit<CartItem, "quantity">>) => void;
+  removeItem: (photoId: string | null, productId: string) => void;
+  updateQuantity: (photoId: string | null, productId: string, quantity: number) => void;
   clearCart: () => void;
   setContext: (familyId: string, sessionId: string) => void;
 
@@ -40,19 +42,54 @@ export const useCartStore = create<CartStore>()(
 
       addItem: (item) =>
         set((state) => {
+          // Bundle purchase replaces the cart.
+          if (item.photoId === null || item.kind === "bundle") {
+            return { items: [{ ...item, kind: "bundle", quantity: 1 }] };
+          }
+
+          // If a bundle is in cart and user adds single photos, remove the bundle.
+          const withoutBundle = state.items.filter((i) => i.photoId !== null && i.kind !== "bundle");
+
           const existing = state.items.find(
             (i) => i.photoId === item.photoId && i.productId === item.productId
           );
           if (existing) {
             return {
-              items: state.items.map((i) =>
+              items: withoutBundle.map((i) =>
                 i.photoId === item.photoId && i.productId === item.productId
                   ? { ...i, quantity: i.quantity + 1 }
                   : i
               ),
             };
           }
-          return { items: [...state.items, { ...item, quantity: 1 }] };
+          return { items: [...withoutBundle, { ...item, kind: "photo", quantity: 1 }] };
+        }),
+
+      addItems: (items) =>
+        set((state) => {
+          if (items.length === 0) return { items: state.items };
+
+          // Bundle wins and replaces cart.
+          const bundle = items.find((i) => i.photoId === null || i.kind === "bundle");
+          if (bundle) return { items: [{ ...bundle, kind: "bundle", quantity: 1 }] };
+
+          // If a bundle is in cart and user adds single photos, remove the bundle.
+          let next = state.items.filter((i) => i.photoId !== null && i.kind !== "bundle");
+
+          for (const item of items) {
+            const existingIndex = next.findIndex(
+              (i) => i.photoId === item.photoId && i.productId === item.productId
+            );
+            if (existingIndex >= 0) {
+              next = next.map((i, idx) =>
+                idx === existingIndex ? { ...i, quantity: i.quantity + 1 } : i
+              );
+            } else {
+              next = [...next, { ...item, kind: "photo", quantity: 1 }];
+            }
+          }
+
+          return { items: next };
         }),
 
       removeItem: (photoId, productId) =>
@@ -87,10 +124,6 @@ export const useCartStore = create<CartStore>()(
         get().items.reduce((sum, item) => sum + item.quantity, 0),
 
       getDiscount: () => {
-        const count = get().getItemCount();
-        const subtotal = get().getSubtotal();
-        // 15% off for 5+ items
-        if (count >= 5) return subtotal * 0.15;
         return 0;
       },
 

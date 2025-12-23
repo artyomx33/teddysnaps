@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
@@ -18,6 +18,7 @@ import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
 import { Card, CardContent, Button, Badge } from "@/components/ui";
 import { createClient } from "@/lib/supabase/client";
+import { removeMatch, restoreMatchesForPhoto } from "@/lib/actions/faces";
 
 interface Child {
   id: string;
@@ -34,6 +35,42 @@ interface Family {
   children: Child[];
 }
 
+type FamilyPhotoMatchRow = {
+  photo_id: string;
+  child_id: string;
+  is_confirmed: boolean;
+  photo?: {
+    id: string;
+    original_url: string;
+    thumbnail_url: string | null;
+    session_id: string;
+    session?: {
+      id: string;
+      name: string;
+      shoot_date: string;
+    };
+  };
+  child?: {
+    id: string;
+    first_name: string;
+  };
+  // Back-compat with older PostgREST embed shapes (arrays)
+  photos?: Array<FamilyPhotoMatchRow["photo"]>;
+  children?: Array<FamilyPhotoMatchRow["child"]>;
+};
+
+type FamilyPhoto = {
+  photoId: string;
+  originalUrl: string;
+  thumbnailUrl: string;
+  sessionId: string;
+  sessionName: string;
+  sessionDate: string | null;
+  children: Array<{ id: string; firstName: string; isConfirmed: boolean }>;
+  confirmedCount: number;
+  totalCount: number;
+};
+
 export default function FamilyDetailPage() {
   const params = useParams();
   const familyId = params.familyId as string;
@@ -42,6 +79,14 @@ export default function FamilyDetailPage() {
   const [enrollingChildId, setEnrollingChildId] = useState<string | null>(null);
   const [enrollError, setEnrollError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [familyPhotos, setFamilyPhotos] = useState<FamilyPhoto[]>([]);
+  const [photosLoading, setPhotosLoading] = useState(false);
+  const [photosError, setPhotosError] = useState<string | null>(null);
+  const [photoFilter, setPhotoFilter] = useState<"all" | "confirmed" | "unconfirmed">("all");
+  const [pendingRemovePhotoId, setPendingRemovePhotoId] = useState<string | null>(null);
+  const [undoItem, setUndoItem] = useState<FamilyPhoto | null>(null);
+  const [undoError, setUndoError] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchFamily() {
@@ -74,6 +119,170 @@ export default function FamilyDetailPage() {
 
     fetchFamily();
   }, [familyId]);
+
+  const fetchFamilyPhotos = useCallback(async () => {
+    if (!family) return;
+    if (!family.children?.length) return;
+
+    setPhotosLoading(true);
+    setPhotosError(null);
+    try {
+      const supabase = createClient();
+      const childIds = family.children.map((c) => c.id);
+
+      const { data, error } = await supabase
+        .from("photo_children")
+        .select(
+          `
+          photo_id,
+          child_id,
+          is_confirmed,
+          photo:photos!inner (
+            id,
+            original_url,
+            thumbnail_url,
+            session_id,
+            session:photo_sessions (
+              id,
+              name,
+              shoot_date
+            )
+          ),
+          child:children (
+            id,
+            first_name
+          )
+        `
+        )
+        .in("child_id", childIds);
+
+      if (error) throw error;
+
+      const rows = (data || []) as unknown as FamilyPhotoMatchRow[];
+
+      const byPhoto = new Map<string, FamilyPhoto>();
+      for (const r of rows) {
+        const photo =
+          (r as any).photo ??
+          (Array.isArray((r as any).photos) ? (r as any).photos?.[0] : (r as any).photos);
+        if (!photo) continue;
+        const session =
+          (photo as any).session ??
+          (Array.isArray((photo as any).photo_sessions)
+            ? (photo as any).photo_sessions?.[0]
+            : (photo as any).photo_sessions);
+
+        const existing =
+          byPhoto.get(r.photo_id) ??
+          ({
+            photoId: r.photo_id,
+            originalUrl: photo.original_url,
+            thumbnailUrl: photo.thumbnail_url || photo.original_url,
+            sessionId: photo.session_id,
+            sessionName: session?.name || "Session",
+            sessionDate: session?.shoot_date || null,
+            children: [],
+            confirmedCount: 0,
+            totalCount: 0,
+          } as FamilyPhoto);
+
+        const child =
+          (r as any).child ??
+          (Array.isArray((r as any).children) ? (r as any).children?.[0] : (r as any).children);
+        if (child) {
+          // Dedup child entries
+          const already = existing.children.some((c) => c.id === child.id);
+          if (!already) {
+            existing.children.push({
+              id: child.id,
+              firstName: child.first_name,
+              isConfirmed: r.is_confirmed === true,
+            });
+          }
+        }
+
+        existing.totalCount = existing.children.length;
+        existing.confirmedCount = existing.children.filter((c) => c.isConfirmed).length;
+
+        byPhoto.set(r.photo_id, existing);
+      }
+
+      // Sort newest sessions first, then stable by photoId
+      const sorted = Array.from(byPhoto.values()).sort((a, b) => {
+        const ad = a.sessionDate ? new Date(a.sessionDate).getTime() : 0;
+        const bd = b.sessionDate ? new Date(b.sessionDate).getTime() : 0;
+        if (bd !== ad) return bd - ad;
+        return a.photoId.localeCompare(b.photoId);
+      });
+
+      setFamilyPhotos(sorted);
+    } catch (e) {
+      console.error("Error fetching family photos:", e);
+      setPhotosError("Failed to load matched photos for this family.");
+      setFamilyPhotos([]);
+    } finally {
+      setPhotosLoading(false);
+    }
+  }, [family]);
+
+  useEffect(() => {
+    fetchFamilyPhotos().catch(() => {});
+  }, [fetchFamilyPhotos]);
+
+  const handleRemovePhoto = async (photo: FamilyPhoto) => {
+    if (pendingRemovePhotoId) return;
+
+    setPendingRemovePhotoId(photo.photoId);
+    setUndoError(null);
+
+    // Optimistically remove from UI + prepare undo
+    const snapshot = photo;
+    setUndoItem(snapshot);
+    setFamilyPhotos((prev) => prev.filter((p) => p.photoId !== photo.photoId));
+
+    try {
+      // Remove ALL matches for this photo for this family (all children shown on the tile)
+      await Promise.all(snapshot.children.map((c) => removeMatch(snapshot.photoId, c.id)));
+    } catch (e) {
+      console.error("Failed to remove photo matches:", e);
+      setUndoError("Failed to remove. Reload and try again.");
+      // Restore UI on failure
+      setFamilyPhotos((prev) => {
+        const next = [...prev, snapshot];
+        return next.sort((a, b) => {
+          const ad = a.sessionDate ? new Date(a.sessionDate).getTime() : 0;
+          const bd = b.sessionDate ? new Date(b.sessionDate).getTime() : 0;
+          if (bd !== ad) return bd - ad;
+          return a.photoId.localeCompare(b.photoId);
+        });
+      });
+      setUndoItem(null);
+    } finally {
+      setPendingRemovePhotoId(null);
+    }
+  };
+
+  const handleUndoRemove = async () => {
+    if (!undoItem) return;
+    const snapshot = undoItem;
+
+    setUndoError(null);
+    try {
+      await restoreMatchesForPhoto(
+        snapshot.photoId,
+        snapshot.children.map((c) => ({
+          childId: c.id,
+          isConfirmed: c.isConfirmed,
+          confidence: 1.0,
+        }))
+      );
+      setUndoItem(null);
+      await fetchFamilyPhotos();
+    } catch (e) {
+      console.error("Failed to undo remove:", e);
+      setUndoError("Failed to undo. Please refresh and try again.");
+    }
+  };
 
   const handleEnrollClick = (childId: string) => {
     setEnrollingChildId(childId);
@@ -168,6 +377,13 @@ export default function FamilyDetailPage() {
   }
 
   const withReferencePhotoCount = family.children.filter((c) => !!c.reference_photo_url).length;
+  const confirmedPhotosCount = familyPhotos.filter((p) => p.confirmedCount > 0).length;
+
+  const visiblePhotos = familyPhotos.filter((p) => {
+    if (photoFilter === "all") return true;
+    if (photoFilter === "confirmed") return p.confirmedCount > 0;
+    return p.confirmedCount === 0;
+  });
 
   return (
     <div className="flex min-h-screen">
@@ -291,6 +507,144 @@ export default function FamilyDetailPage() {
               </Card>
             ))}
           </div>
+
+          {/* Matched Photos (for verification) */}
+          <Card variant="glass">
+            <CardContent className="space-y-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h3 className="font-medium text-white">Matched Photos</h3>
+                  <p className="text-sm text-charcoal-400">
+                    {familyPhotos.length} total photos matched • {confirmedPhotosCount} have at least one confirmed child
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant={photoFilter === "all" ? "primary" : "outline"}
+                    size="sm"
+                    onClick={() => setPhotoFilter("all")}
+                  >
+                    All
+                  </Button>
+                  <Button
+                    variant={photoFilter === "confirmed" ? "primary" : "outline"}
+                    size="sm"
+                    onClick={() => setPhotoFilter("confirmed")}
+                  >
+                    Confirmed
+                  </Button>
+                  <Button
+                    variant={photoFilter === "unconfirmed" ? "primary" : "outline"}
+                    size="sm"
+                    onClick={() => setPhotoFilter("unconfirmed")}
+                  >
+                    Unconfirmed
+                  </Button>
+                </div>
+              </div>
+
+              {photosError && (
+                <div className="text-sm text-red-300">{photosError}</div>
+              )}
+
+              {photosLoading ? (
+                <div className="flex items-center gap-3 text-charcoal-400">
+                  <Loader2 className="w-5 h-5 animate-spin text-gold-500" />
+                  Loading matched photos...
+                </div>
+              ) : visiblePhotos.length === 0 ? (
+                <div className="text-sm text-charcoal-400">
+                  No matched photos found for this family{photoFilter !== "all" ? " with this filter" : ""}.
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                  {visiblePhotos.slice(0, 120).map((p) => (
+                    <a
+                      key={p.photoId}
+                      href={p.originalUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="group block"
+                      title={`${p.sessionName} • ${p.totalCount} matches`}
+                    >
+                      <div className="relative aspect-square rounded-lg overflow-hidden border border-charcoal-700 group-hover:border-charcoal-500 transition-colors">
+                        <img
+                          src={p.thumbnailUrl}
+                          alt=""
+                          className="w-full h-full object-cover"
+                        />
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleRemovePhoto(p).catch(() => {});
+                          }}
+                          disabled={pendingRemovePhotoId === p.photoId}
+                          className="absolute top-2 left-2 px-2 py-1 text-xs rounded-md bg-black/60 text-white hover:bg-black/80 transition-colors disabled:opacity-60"
+                          title="Remove this photo from this family (undo available)"
+                        >
+                          {pendingRemovePhotoId === p.photoId ? "Removing..." : "Remove"}
+                        </button>
+                        <div className="absolute inset-x-0 bottom-0 p-2 bg-gradient-to-t from-black/70 to-transparent">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-xs text-white truncate">
+                              {p.sessionName}
+                            </span>
+                            <Badge variant={p.confirmedCount > 0 ? "success" : "warning"} className="text-xs">
+                              {p.confirmedCount}/{p.totalCount}
+                            </Badge>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {p.children.slice(0, 3).map((c) => (
+                          <span
+                            key={c.id}
+                            className={`text-[11px] px-1.5 py-0.5 rounded ${
+                              c.isConfirmed ? "bg-teal-500/20 text-teal-300" : "bg-amber-500/15 text-amber-300"
+                            }`}
+                          >
+                            {c.firstName}
+                          </span>
+                        ))}
+                        {p.children.length > 3 && (
+                          <span className="text-[11px] px-1.5 py-0.5 rounded bg-charcoal-800 text-charcoal-400">
+                            +{p.children.length - 3}
+                          </span>
+                        )}
+                      </div>
+                    </a>
+                  ))}
+                </div>
+              )}
+
+              {familyPhotos.length > 120 && (
+                <p className="text-xs text-charcoal-500">
+                  Showing first 120 photos. (We can add pagination if you want.)
+                </p>
+              )}
+
+              {undoItem && (
+                <div className="flex items-center justify-between gap-3 p-3 rounded-lg border border-amber-500/30 bg-amber-500/10">
+                  <div className="text-sm text-amber-200">
+                    Removed 1 photo from this family. Undo?
+                    {undoError && (
+                      <span className="block text-xs text-red-300 mt-1">{undoError}</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button variant="outline" size="sm" onClick={() => setUndoItem(null)}>
+                      Dismiss
+                    </Button>
+                    <Button variant="primary" size="sm" onClick={() => handleUndoRemove().catch(() => {})}>
+                      Undo
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
           {/* Hidden file input */}
           <input
