@@ -1,1 +1,44 @@
-{"name":"teddysnaps","version":"0.1.0","private":true,"scripts":{"dev":"next dev","build":"next build","start":"next start","lint":"npx eslint src/","gates:env":"echo 'Environment validation placeholder'","gates:types":"npx tsc --noEmit","gates:lint":"npm run lint","gates:build":"npm run build","gates:all":"npm run gates:env && npm run gates:types && npm run gates:lint && npm run gates:build"},"dependencies":{"@hookform/resolvers":"^5.2.2","@mollie/api-client":"^4.3.3","@supabase/ssr":"^0.8.0","@supabase/supabase-js":"^2.89.0","@tailwindcss/postcss":"^4.1.18","@tensorflow/tfjs-backend-webgl":"^4.22.0","@tensorflow/tfjs-core":"^4.22.0","clsx":"^2.1.1","face-api.js":"^0.22.2","framer-motion":"^12.23.26","lucide-react":"^0.562.0","next":"^15.3.0","react":"^19.0.0","react-dom":"^19.0.0","react-hook-form":"^7.68.0","tailwind-merge":"^3.4.0","zod":"^4.2.1","zustand":"^5.0.9"},"devDependencies":{"@eslint/eslintrc":"^3.3.3","@types/node":"^22","@types/react":"^19","@types/react-dom":"^19","eslint":"^9","eslint-config-next":"^15","postcss":"^8","tailwindcss":"^4","typescript":"^5"}}
+{
+  "name": "teddysnaps",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "npx eslint src/",
+    "gates:env": "echo 'Environment validation placeholder'",
+    "gates:types": "npx tsc --noEmit",
+    "gates:lint": "npm run lint",
+    "gates:build": "npm run build",
+    "gates:all": "npm run gates:env && npm run gates:types && npm run gates:lint && npm run gates:build"
+  },
+  "dependencies": {
+    "@hookform/resolvers": "^5.2.2",
+    "@mollie/api-client": "^4.3.3",
+    "@supabase/ssr": "^0.8.0",
+    "@supabase/supabase-js": "^2.89.0",
+    "@tailwindcss/postcss": "^4.1.18",
+    "clsx": "^2.1.1",
+    "framer-motion": "^12.23.26",
+    "lucide-react": "^0.562.0",
+    "next": "^15.3.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-hook-form": "^7.68.0",
+    "tailwind-merge": "^3.4.0",
+    "zod": "^4.2.1",
+    "zustand": "^5.0.9"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.3.3",
+    "@types/node": "^22",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "^15",
+    "postcss": "^8",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}

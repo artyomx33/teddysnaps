@@ -25,7 +25,7 @@ import {
   getFacesForMatching,
 } from "@/lib/actions/faces";
 import { cn } from "@/lib/utils";
-import { matchAllFaces, SuggestedMatch } from "@/lib/face-recognition/matcher";
+import { matchAllFaces, SuggestedMatch } from "@/lib/face-embeddings/matcher";
 
 function getConfidenceColor(similarity: number): string {
   // similarity is 0-1 (cosine mapped to [0,1])

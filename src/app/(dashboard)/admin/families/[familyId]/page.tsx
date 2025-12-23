@@ -18,14 +18,11 @@ import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
 import { Card, CardContent, Button, Badge } from "@/components/ui";
 import { createClient } from "@/lib/supabase/client";
-import { enrollChildFace } from "@/lib/actions/faces";
-import { enrollChild, descriptorToArray } from "@/lib/face-recognition/processor";
 
 interface Child {
   id: string;
   first_name: string;
   date_of_birth: string | null;
-  is_enrolled: boolean;
   reference_photo_url: string | null;
 }
 
@@ -106,23 +103,17 @@ export default function FamilyDetailPage() {
 
       const photoUrl = urlData.publicUrl;
 
-      // 3. Extract face descriptor using AI
-      const descriptor = await enrollChild(photoUrl);
+      // 3. Save reference photo URL (face embeddings are generated server-side by the InsightFace worker)
+      const { error: updateError } = await supabase
+        .from("children")
+        .update({
+          reference_photo_url: photoUrl,
+        })
+        .eq("id", enrollingChildId);
 
-      if (!descriptor) {
-        setEnrollError("No face detected in photo. Please try another photo with a clear face.");
-        setEnrollingChildId(null);
-        return;
-      }
+      if (updateError) throw updateError;
 
-      // 4. Save to database
-      await enrollChildFace(
-        enrollingChildId,
-        descriptorToArray(descriptor),
-        photoUrl
-      );
-
-      // 5. Refresh family data
+      // 4. Refresh family data
       const { data } = await supabase
         .from("families")
         .select(`
@@ -134,7 +125,6 @@ export default function FamilyDetailPage() {
             id,
             first_name,
             date_of_birth,
-            is_enrolled,
             reference_photo_url
           )
         `)
@@ -177,7 +167,7 @@ export default function FamilyDetailPage() {
     );
   }
 
-  const enrolledCount = family.children.filter((c) => c.is_enrolled).length;
+  const withReferencePhotoCount = family.children.filter((c) => !!c.reference_photo_url).length;
 
   return (
     <div className="flex min-h-screen">
@@ -207,7 +197,7 @@ export default function FamilyDetailPage() {
             </div>
             <div className="flex items-center gap-2 text-charcoal-300">
               <Camera className="w-4 h-4" />
-              <span>{enrolledCount} enrolled for AI matching</span>
+              <span>{withReferencePhotoCount} with reference photos</span>
             </div>
           </div>
 
@@ -247,12 +237,12 @@ export default function FamilyDetailPage() {
                       </div>
                     )}
 
-                    {/* Enrollment badge */}
-                    {child.is_enrolled && (
+                    {/* Reference photo badge */}
+                    {child.reference_photo_url && (
                       <div className="absolute top-3 right-3">
                         <Badge variant="success" className="flex items-center gap-1">
                           <CheckCircle className="w-3 h-3" />
-                          Enrolled
+                          Ready
                         </Badge>
                       </div>
                     )}
@@ -273,7 +263,7 @@ export default function FamilyDetailPage() {
 
                     {/* Enroll button */}
                     <Button
-                      variant={child.is_enrolled ? "ghost" : "primary"}
+                      variant={child.reference_photo_url ? "ghost" : "primary"}
                       size="sm"
                       className="w-full"
                       onClick={() => handleEnrollClick(child.id)}
@@ -284,7 +274,7 @@ export default function FamilyDetailPage() {
                           <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                           Processing...
                         </>
-                      ) : child.is_enrolled ? (
+                      ) : child.reference_photo_url ? (
                         <>
                           <Camera className="w-4 h-4 mr-2" />
                           Update Photo
@@ -314,12 +304,12 @@ export default function FamilyDetailPage() {
           {/* Instructions */}
           <Card variant="glass">
             <CardContent>
-              <h3 className="font-medium text-white mb-2">How Face Enrollment Works</h3>
+              <h3 className="font-medium text-white mb-2">How Matching Works Now</h3>
               <ol className="text-sm text-charcoal-400 space-y-2 list-decimal list-inside">
-                <li>Upload a clear reference photo of each child&apos;s face</li>
-                <li>Our AI extracts unique facial features from the photo</li>
-                <li>When you upload session photos, AI automatically matches faces</li>
-                <li>Parents see only photos containing their children in the gallery</li>
+                <li>Upload session photos</li>
+                <li>Run server-side face discovery (InsightFace worker) to cluster faces</li>
+                <li>Go to Admin → Faces to label each cluster</li>
+                <li>Parents will see only confirmed photos after clusters are labeled</li>
               </ol>
             </CardContent>
           </Card>
