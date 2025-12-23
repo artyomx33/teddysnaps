@@ -4,8 +4,13 @@ import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { Users, KeyRound, Calendar, ChevronRight, Loader2, AlertTriangle } from "lucide-react";
 import { Button, Card, CardContent, Input, Badge } from "@/components/ui";
-import { getFamilyByAccessCode, getSessionsForLocation, type Session } from "@/lib/actions/gallery";
 import { useRouter } from "next/navigation";
+
+type Session = {
+  id: string;
+  name: string;
+  shoot_date: string;
+};
 
 export default function GalleryEntryPage() {
   const router = useRouter();
@@ -24,25 +29,29 @@ export default function GalleryEntryPage() {
     setError(null);
 
     try {
-      const family = await getFamilyByAccessCode(normalizedCode);
-      if (!family) {
-        setError("Invalid access code. Please check and try again.");
+      const res = await fetch("/api/gallery/lookup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accessCode: normalizedCode }),
+      });
+
+      const payload = (await res.json()) as
+        | {
+            ok: true;
+            familyName: string;
+            sessions: Session[];
+          }
+        | { ok: false; message: string };
+
+      if (!payload.ok) {
+        setError(payload.message || "Failed to load sessions. Please try again.");
         setFamilyName(null);
         setSessions([]);
         return;
       }
 
-      setFamilyName(family.family_name);
-
-      const locationId = family.location_id;
-      if (!locationId) {
-        setError("This family is missing a location. Ask the photographer to fix it in Admin → Families.");
-        setSessions([]);
-        return;
-      }
-
-      const sessionsForLocation = await getSessionsForLocation(locationId);
-      setSessions(sessionsForLocation);
+      setFamilyName(payload.familyName);
+      setSessions(payload.sessions ?? []);
     } catch (e) {
       console.error(e);
       setError("Failed to load sessions. Please try again.");
