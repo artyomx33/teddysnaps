@@ -57,6 +57,8 @@ interface Family {
 export default function FamiliesPage() {
   const router = useRouter();
   const [families, setFamilies] = useState<Family[]>([]);
+  const [purchaseCounts, setPurchaseCounts] = useState<Record<string, number>>({});
+  const [openRetouchCounts, setOpenRetouchCounts] = useState<Record<string, number>>({});
   const [locations, setLocations] = useState<Array<{ id: string; name: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
@@ -107,6 +109,43 @@ export default function FamiliesPage() {
 
     setFamilies(familiesRes.data || []);
     setLocations(locationsRes.data || []);
+
+    const familyIds = (familiesRes.data || []).map((f: any) => f.id as string).filter(Boolean);
+    if (familyIds.length > 0) {
+      const [paidOrdersRes, openRetouchRes] = await Promise.all([
+        supabase
+          .from("orders")
+          .select("family_id")
+          .in("family_id", familyIds)
+          .eq("payment_status", "paid"),
+        supabase
+          .from("retouch_tasks")
+          .select("family_id")
+          .in("family_id", familyIds)
+          .neq("status", "delivered"),
+      ]);
+
+      const paidCounts: Record<string, number> = {};
+      for (const row of paidOrdersRes.data || []) {
+        const fid = (row as any).family_id as string;
+        if (!fid) continue;
+        paidCounts[fid] = (paidCounts[fid] || 0) + 1;
+      }
+
+      const openCounts: Record<string, number> = {};
+      for (const row of openRetouchRes.data || []) {
+        const fid = (row as any).family_id as string;
+        if (!fid) continue;
+        openCounts[fid] = (openCounts[fid] || 0) + 1;
+      }
+
+      setPurchaseCounts(paidCounts);
+      setOpenRetouchCounts(openCounts);
+    } else {
+      setPurchaseCounts({});
+      setOpenRetouchCounts({});
+    }
+
     setLoading(false);
   }
 
@@ -606,6 +645,16 @@ export default function FamiliesPage() {
                             <Badge variant="default" className="text-xs font-mono">
                               {family.access_code}
                             </Badge>
+                            {(purchaseCounts[family.id] || 0) > 0 && (
+                              <Badge variant="success" className="text-xs">
+                                {purchaseCounts[family.id]} paid
+                              </Badge>
+                            )}
+                            {(openRetouchCounts[family.id] || 0) > 0 && (
+                              <Badge variant="warning" className="text-xs">
+                                {openRetouchCounts[family.id]} retouch
+                              </Badge>
+                            )}
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
