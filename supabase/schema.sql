@@ -109,10 +109,25 @@ create table if not exists products (
   type text not null check (type in ('digital', 'print', 'canvas', 'book')),
   size text,
   price decimal(10,2) not null,
+  description text,
   is_active boolean default true,
   sort_order int default 0,
   created_at timestamptz default now()
 );
+
+-- ============================================
+-- PHOTO LIKES (parent favorites / hearts)
+-- ============================================
+create table if not exists photo_likes (
+  id uuid primary key default uuid_generate_v4(),
+  family_id uuid not null references families(id) on delete cascade,
+  photo_id uuid not null references photos(id) on delete cascade,
+  created_at timestamptz default now(),
+  unique(family_id, photo_id)
+);
+
+create index if not exists idx_photo_likes_photo on photo_likes(photo_id);
+create index if not exists idx_photo_likes_family on photo_likes(family_id);
 
 -- ============================================
 -- ORDERS
@@ -179,6 +194,7 @@ alter table children enable row level security;
 alter table photo_sessions enable row level security;
 alter table photos enable row level security;
 alter table photo_children enable row level security;
+alter table photo_likes enable row level security;
 alter table products enable row level security;
 alter table orders enable row level security;
 alter table order_items enable row level security;
@@ -188,6 +204,13 @@ alter table users enable row level security;
 create policy "Products are viewable by everyone"
   on products for select
   using (true);
+
+-- Staff can view photo likes (favorites)
+create policy "Staff can view photo_likes"
+  on photo_likes for select
+  using (
+    exists (select 1 from users u where u.id = auth.uid())
+  );
 
 -- Users can read their own profile
 create policy "Users can view own profile"
@@ -298,13 +321,30 @@ create policy "Staff can view order items"
 -- ============================================
 -- SEED DATA: Default products
 -- ============================================
-insert into products (id, name, type, size, price, sort_order) values
-  ('11111111-1111-1111-1111-111111111111', 'Digital HD', 'digital', null, 2.50, 1),
-  ('22222222-2222-2222-2222-222222222222', '10×15 Print', 'print', '10x15', 4.50, 2),
-  ('33333333-3333-3333-3333-333333333333', '13×18 Print', 'print', '13x18', 6.00, 3),
-  ('44444444-4444-4444-4444-444444444444', '20×30 Print', 'print', '20x30', 8.50, 4),
-  ('55555555-5555-5555-5555-555555555555', 'Canvas 30×40', 'canvas', '30x40', 29.00, 5),
-  ('66666666-6666-6666-6666-666666666666', 'Photo Book 20 pages', 'book', '20pages', 35.00, 6)
+insert into products (id, name, type, size, price, description, sort_order) values
+  (
+    '11111111-1111-1111-1111-111111111111',
+    'Digital Edit (HD)',
+    'digital',
+    null,
+    2.50,
+    'High‑resolution digital download. Includes retouching on this photo.',
+    1
+  ),
+  (
+    '77777777-7777-7777-7777-777777777777',
+    'All digital photos + 3 retouch edits',
+    'digital',
+    null,
+    50.00,
+    'All photos as digital downloads. Includes 3 premium retouch edits (choose your top 3 favourites; if none, we select).',
+    2
+  ),
+  ('22222222-2222-2222-2222-222222222222', '10×15 Print', 'print', '10x15', 4.50, 'Glossy or matte finish', 3),
+  ('33333333-3333-3333-3333-333333333333', '13×18 Print', 'print', '13x18', 6.00, 'Glossy or matte finish', 4),
+  ('44444444-4444-4444-4444-444444444444', '20×30 Print', 'print', '20x30', 8.50, 'Large format print', 5),
+  ('55555555-5555-5555-5555-555555555555', 'Canvas 30×40', 'canvas', '30x40', 29.00, 'Premium stretched canvas', 6),
+  ('66666666-6666-6666-6666-666666666666', 'Photo Book 20 pages', 'book', '20pages', 35.00, 'Curated selection hardcover book', 7)
 on conflict (id) do nothing;
 
 -- ============================================

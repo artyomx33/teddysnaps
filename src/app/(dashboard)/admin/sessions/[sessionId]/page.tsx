@@ -12,6 +12,7 @@ import {
   Upload,
   Brain,
   CheckCircle,
+  Heart,
   Grid,
   List,
   Scan,
@@ -35,6 +36,8 @@ interface Photo {
   thumbnail_url: string;
   filename: string;
   created_at: string;
+  likeCount?: number;
+  likedBy?: Array<{ id: string; family_name: string }>;
   matches: Array<{
     child_id: string;
     is_confirmed: boolean;
@@ -122,7 +125,45 @@ export default function SessionDetailPage() {
       .order("created_at", { ascending: true });
 
     setSession(sessionData);
-    setPhotos((photosData || []) as unknown as Photo[]);
+    const basePhotos = (photosData || []) as unknown as Photo[];
+
+    // Hydrate favourites (hearts) so photographers can see what parents liked.
+    const photoIds = basePhotos.map((p) => p.id);
+    let likesByPhoto = new Map<string, { count: number; families: Array<{ id: string; family_name: string }> }>();
+
+    if (photoIds.length > 0) {
+      const { data: likesData } = await supabase
+        .from("photo_likes")
+        .select("photo_id, family:families(id, family_name)")
+        .in("photo_id", photoIds);
+
+      for (const row of (likesData || []) as any[]) {
+        const photoId = row.photo_id as string;
+        const family = Array.isArray(row.family) ? row.family?.[0] : row.family;
+        const familyId = family?.id as string | undefined;
+        const familyName = family?.family_name as string | undefined;
+        if (!photoId || !familyId || !familyName) continue;
+
+        const prev = likesByPhoto.get(photoId) ?? { count: 0, families: [] };
+        // de-dupe by family id
+        if (!prev.families.some((f) => f.id === familyId)) {
+          prev.families.push({ id: familyId, family_name: familyName });
+          prev.count += 1;
+        }
+        likesByPhoto.set(photoId, prev);
+      }
+    }
+
+    setPhotos(
+      basePhotos.map((p) => {
+        const like = likesByPhoto.get(p.id);
+        return {
+          ...p,
+          likeCount: like?.count ?? 0,
+          likedBy: like?.families ?? [],
+        };
+      })
+    );
     setLoading(false);
   }
 
@@ -513,6 +554,16 @@ export default function SessionDetailPage() {
                           </div>
                         )}
 
+                      {/* Likes (hearts) indicator */}
+                      {(photo.likeCount || 0) > 0 && (
+                        <div className="absolute top-2 right-2">
+                          <Badge variant="default" className="text-xs bg-black/60 border border-charcoal-700">
+                            <Heart className="w-3 h-3 mr-1 text-red-400 fill-current" />
+                            {photo.likeCount}
+                          </Badge>
+                        </div>
+                      )}
+
                       {/* Hover overlay for photos without unconfirmed matches */}
                       {(!photo.matches?.some((m) => !m.is_confirmed)) && (
                         <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
@@ -575,6 +626,22 @@ export default function SessionDetailPage() {
                       <p className="text-sm text-charcoal-500">
                         No children matched yet
                       </p>
+                    )}
+
+                    {(selectedPhoto.likeCount || 0) > 0 && (
+                      <div className="mt-4 pt-4 border-t border-charcoal-800">
+                        <p className="text-sm font-medium text-white mb-2 flex items-center gap-2">
+                          <Heart className="w-4 h-4 text-red-400 fill-current" />
+                          Favourites ({selectedPhoto.likeCount})
+                        </p>
+                        <div className="space-y-1">
+                          {(selectedPhoto.likedBy || []).map((f) => (
+                            <div key={f.id} className="text-sm text-charcoal-300">
+                              {f.family_name}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                     )}
 
                     <Button

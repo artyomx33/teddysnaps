@@ -2,11 +2,21 @@
 export const PRODUCTS = [
   {
     id: "11111111-1111-1111-1111-111111111111",
-    name: "Digital HD",
+    name: "Digital Edit (HD)",
     type: "digital" as const,
     size: null,
     price: 2.5,
-    description: "High resolution digital download",
+    description:
+      "High‑resolution digital download. Includes retouching on this photo.",
+  },
+  {
+    id: "77777777-7777-7777-7777-777777777777",
+    name: "All digital photos + 3 retouch edits",
+    type: "digital" as const,
+    size: null,
+    price: 50.0,
+    description:
+      "All photos as digital downloads. Includes 3 premium retouch edits (choose your top 3 favourites; if none, we select).",
   },
   {
     id: "22222222-2222-2222-2222-222222222222",

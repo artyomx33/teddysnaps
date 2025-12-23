@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { createPayment } from "@/lib/mollie/client";
+import { getBaseUrl } from "@/lib/base-url";
 import { revalidatePath } from "next/cache";
 
 export interface OrderItem {
@@ -124,7 +125,7 @@ export async function createOrder(input: CreateOrderInput) {
   }
 
   // Create Mollie payment
-  const baseUrl = (process.env.NEXT_PUBLIC_URL || "http://localhost:3000").replace(/\/+$/, "");
+  const baseUrl = getBaseUrl();
 
   try {
     const { paymentId, checkoutUrl } = await createPayment({
@@ -372,7 +373,7 @@ export async function createPaymentForOrder(orderId: string) {
     throw new Error("Order is already paid");
   }
 
-  const baseUrl = (process.env.NEXT_PUBLIC_URL || "http://localhost:3000").replace(/\/+$/, "");
+  const baseUrl = getBaseUrl();
 
   try {
     const { paymentId, checkoutUrl } = await createPayment({

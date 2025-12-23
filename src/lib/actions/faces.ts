@@ -59,17 +59,18 @@ export async function enrollChildFace(
  * Save photo-child matches from AI processing
  */
 export async function savePhotoMatches(
-  matches: Array<{ photoId: string; childId: string; confidence: number }>
+  matches: Array<{ photoId: string; childId: string; confidence: number; isConfirmed?: boolean }>
 ) {
   const supabase = await createClient();
 
   // Insert matches (with upsert to handle duplicates)
+  // Manual naming (confidence = 1.0) auto-confirms; AI matches need review
   const { error } = await supabase.from("photo_children").upsert(
     matches.map((match) => ({
       photo_id: match.photoId,
       child_id: match.childId,
       confidence: match.confidence,
-      is_confirmed: false, // AI matches are not confirmed by default
+      is_confirmed: match.isConfirmed ?? (match.confidence >= 1.0), // Auto-confirm manual matches
     })),
     { onConflict: "photo_id,child_id" }
   );

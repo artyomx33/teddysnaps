@@ -1,20 +1,62 @@
 import { NextRequest, NextResponse } from "next/server";
 import { mollieClient } from "@/lib/mollie/client";
-import { createClient } from "@supabase/supabase-js";
+import { createAdminClient } from "@/lib/supabase/admin";
 
-// Create client inside function to avoid build-time evaluation
-function getSupabaseClient() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
+export const runtime = "nodejs";
+
+function extractOrderIdFromMetadata(metadata: unknown): string | null {
+  if (!metadata) return null;
+  if (typeof metadata === "object") {
+    const orderId = (metadata as Record<string, unknown>).orderId;
+    return typeof orderId === "string" && orderId.length > 0 ? orderId : null;
+  }
+  if (typeof metadata === "string") {
+    try {
+      const parsed = JSON.parse(metadata) as Record<string, unknown>;
+      const orderId = parsed?.orderId;
+      return typeof orderId === "string" && orderId.length > 0 ? orderId : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+async function extractPaymentId(request: NextRequest): Promise<string | null> {
+  // Mollie usually sends: application/x-www-form-urlencoded with body "id=tr_..."
+  // But we accept JSON too (some proxies/tests).
+  const contentType = request.headers.get("content-type") || "";
+
+  try {
+    if (contentType.includes("application/json")) {
+      const body = (await request.json()) as unknown;
+      if (body && typeof body === "object") {
+        const id = (body as Record<string, unknown>).id;
+        return typeof id === "string" && id.length > 0 ? id : null;
+      }
+      return null;
+    }
+
+    const formData = await request.formData();
+    const id = formData.get("id");
+    return typeof id === "string" && id.length > 0 ? id : null;
+  } catch {
+    // Fallback: best-effort parse raw body (urlencoded)
+    try {
+      const text = await request.text();
+      const match = text.match(/(?:^|&)id=([^&]+)/);
+      if (!match) return null;
+      return decodeURIComponent(match[1] || "");
+    } catch {
+      return null;
+    }
+  }
 }
 
 export async function POST(request: NextRequest) {
-  const supabase = getSupabaseClient();
+  const supabase = createAdminClient();
   try {
-    const formData = await request.formData();
-    const paymentId = formData.get("id") as string;
+    const paymentId = await extractPaymentId(request);
 
     if (!paymentId) {
       return NextResponse.json(
@@ -27,7 +69,7 @@ export async function POST(request: NextRequest) {
     const payment = await mollieClient.payments.get(paymentId);
 
     // Extract order ID from metadata
-    const orderId = (payment.metadata as Record<string, unknown>)?.orderId as string;
+    const orderId = extractOrderIdFromMetadata(payment.metadata);
 
     if (!orderId) {
       console.error("No orderId in payment metadata");
@@ -41,7 +83,10 @@ export async function POST(request: NextRequest) {
     let paymentStatus: "pending" | "paid" | "failed" = "pending";
     let orderStatus: string | null = null;
 
-    switch (payment.status) {
+    // Treat as string to be resilient to API/type differences across Mollie versions.
+    const mollieStatus = payment.status as unknown as string;
+
+    switch (mollieStatus) {
       case "paid":
         paymentStatus = "paid";
         orderStatus = "paid";
@@ -49,6 +94,7 @@ export async function POST(request: NextRequest) {
       case "failed":
       case "canceled":
       case "expired":
+      case "charged_back":
         paymentStatus = "failed";
         break;
       // 'pending', 'open', 'authorized' stay as pending

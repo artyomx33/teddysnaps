@@ -75,6 +75,92 @@ export async function getPricedProducts(): Promise<Product[]> {
   return priced;
 }
 
+export async function setPhotoLike(input: {
+  sessionId: string;
+  familyCode: string;
+  photoId: string;
+  liked: boolean;
+}): Promise<{ ok: true } | { ok: false; message: string }> {
+  const sessionId = input.sessionId.trim();
+  const familyCode = input.familyCode.trim().toUpperCase();
+  const photoId = input.photoId.trim();
+
+  if (!sessionId || !familyCode || !photoId) {
+    return { ok: false, message: "Missing sessionId/familyCode/photoId" };
+  }
+
+  const supabase = createAdminClient();
+
+  // Verify family by access code (we don't trust client-provided familyId)
+  const { data: family, error: familyError } = await supabase
+    .from("families")
+    .select("id")
+    .eq("access_code", familyCode)
+    .maybeSingle();
+
+  if (familyError || !family) {
+    return { ok: false, message: "Invalid access code" };
+  }
+
+  // Verify photo belongs to this family for this session (confirmed match).
+  const { data: children, error: childrenError } = await supabase
+    .from("children")
+    .select("id")
+    .eq("family_id", family.id);
+
+  if (childrenError || !children?.length) {
+    return { ok: false, message: "Family has no children" };
+  }
+
+  const childIds = children.map((c: any) => c.id as string);
+
+  const { data: match, error: matchError } = await supabase
+    .from("photo_children")
+    .select(
+      `
+      id,
+      photo:photos!inner (
+        id,
+        session_id
+      )
+    `
+    )
+    .eq("photo_id", photoId)
+    .eq("is_confirmed", true)
+    .in("child_id", childIds)
+    .limit(1)
+    .maybeSingle();
+
+  const matchPhoto = (match as any)?.photo;
+  const matchPhotoSessionId = Array.isArray(matchPhoto)
+    ? matchPhoto?.[0]?.session_id
+    : matchPhoto?.session_id;
+
+  if (matchError || !match || matchPhotoSessionId !== sessionId) {
+    return { ok: false, message: "Photo not available for this family" };
+  }
+
+  if (input.liked) {
+    const { error } = await supabase.from("photo_likes").upsert(
+      {
+        family_id: family.id,
+        photo_id: photoId,
+      },
+      { onConflict: "family_id,photo_id", ignoreDuplicates: true }
+    );
+    if (error) return { ok: false, message: "Failed to save like" };
+  } else {
+    const { error } = await supabase
+      .from("photo_likes")
+      .delete()
+      .eq("family_id", family.id)
+      .eq("photo_id", photoId);
+    if (error) return { ok: false, message: "Failed to remove like" };
+  }
+
+  return { ok: true };
+}
+
 // Get family by access code
 export async function getFamilyByAccessCode(accessCode: string): Promise<Family | null> {
   const supabase = await createClient();
@@ -233,7 +319,24 @@ export async function getPhotosForFamily(
     }
   }
 
-  return Array.from(photoMap.values());
+  const base = Array.from(photoMap.values());
+
+  // Hydrate likes (hearts) for this family.
+  // Use service role so parent gallery always loads even if RLS is enabled.
+  const admin = createAdminClient();
+  const photoIds = base.map((p) => p.id);
+  if (photoIds.length === 0) return base;
+
+  const { data: likes, error: likesError } = await admin
+    .from("photo_likes")
+    .select("photo_id")
+    .eq("family_id", familyId)
+    .in("photo_id", photoIds);
+
+  if (likesError || !likes) return base;
+
+  const likedSet = new Set(likes.map((l: any) => l.photo_id as string));
+  return base.map((p) => ({ ...p, isLiked: likedSet.has(p.id) }));
 }
 
 // Get all photos in a session (for sessions without face matching yet)

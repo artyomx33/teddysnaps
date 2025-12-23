@@ -24,32 +24,36 @@ import { createClient } from "@/lib/supabase/client";
 interface Order {
   id: string;
   order_number: string;
-  status: "pending" | "paid" | "processing" | "shipped" | "delivered" | "cancelled";
-  payment_status: "pending" | "paid" | "failed" | "refunded";
-  total_amount: number;
+  status: "pending" | "paid" | "processing" | "ready" | "delivered";
+  payment_status: "pending" | "paid" | "failed";
+  total: number;
   delivery_method: string;
-  contact_email: string | null;
-  contact_phone: string | null;
   delivery_address: string | null;
   created_at: string;
-  family: Array<{
+  family: {
     family_name: string;
-  }> | null;
+    email: string | null;
+    phone: string | null;
+  } | null;
   order_items: Array<{
     id: string;
-    product_name: string;
     quantity: number;
     unit_price: number;
+    product: { name: string } | null;
   }>;
+}
+
+function pickOne<T>(value: T | T[] | null | undefined): T | null {
+  if (!value) return null;
+  return Array.isArray(value) ? value[0] ?? null : value;
 }
 
 const statusConfig = {
   pending: { color: "bg-yellow-500/20 text-yellow-400", icon: Clock },
   paid: { color: "bg-green-500/20 text-green-400", icon: CheckCircle },
   processing: { color: "bg-blue-500/20 text-blue-400", icon: Package },
-  shipped: { color: "bg-purple-500/20 text-purple-400", icon: Package },
+  ready: { color: "bg-purple-500/20 text-purple-400", icon: Package },
   delivered: { color: "bg-green-500/20 text-green-400", icon: CheckCircle },
-  cancelled: { color: "bg-red-500/20 text-red-400", icon: XCircle },
 };
 
 export default function OrdersPage() {
@@ -68,20 +72,22 @@ export default function OrdersPage() {
           order_number,
           status,
           payment_status,
-          total_amount,
+          total,
           delivery_method,
-          contact_email,
-          contact_phone,
           delivery_address,
           created_at,
           family:families (
-            family_name
+            family_name,
+            email,
+            phone
           ),
-          order_items (
+          order_items:order_items (
             id,
-            product_name,
             quantity,
-            unit_price
+            unit_price,
+            product:products (
+              name
+            )
           )
         `)
         .order("created_at", { ascending: false });
@@ -89,7 +95,25 @@ export default function OrdersPage() {
       if (error) {
         console.error("Error fetching orders:", error);
       } else {
-        setOrders(data || []);
+        const normalized: Order[] = (data || []).map((row) => {
+          const r = row as unknown as Record<string, unknown>;
+          const family = pickOne(r.family as unknown);
+          const orderItems = (r.order_items as unknown[] | undefined) || [];
+
+          return {
+            ...(r as unknown as Order),
+            family: pickOne(family as unknown) as Order["family"],
+            order_items: orderItems.map((item) => {
+              const it = item as Record<string, unknown>;
+              return {
+                ...(it as unknown as Order["order_items"][number]),
+                product: pickOne(it.product as unknown) as Order["order_items"][number]["product"],
+              };
+            }),
+          };
+        });
+
+        setOrders(normalized);
       }
       setLoading(false);
     }
@@ -171,14 +195,14 @@ export default function OrdersPage() {
                                 {order.order_number}
                               </p>
                               <p className="text-sm text-charcoal-400">
-                                {order.family?.[0]?.family_name || "Unknown"} •{" "}
+                                {order.family?.family_name || "Unknown"} •{" "}
                                 {formatDate(order.created_at)}
                               </p>
                             </div>
                           </div>
                           <div className="flex items-center gap-4">
                             <p className="font-medium text-gold-500">
-                              {formatPrice(order.total_amount)}
+                              {formatPrice(order.total)}
                             </p>
                             <Badge
                               variant={
@@ -217,7 +241,7 @@ export default function OrdersPage() {
                       <div>
                         <p className="text-sm text-charcoal-400">Family</p>
                         <p className="text-white">
-                          {selectedOrder.family?.[0]?.family_name || "Unknown"}
+                          {selectedOrder.family?.family_name || "Unknown"}
                         </p>
                       </div>
 
@@ -239,20 +263,20 @@ export default function OrdersPage() {
                         </p>
                       </div>
 
-                      {selectedOrder.contact_email && (
+                      {selectedOrder.family?.email && (
                         <div className="flex items-center gap-2 text-charcoal-300">
                           <Mail className="w-4 h-4" />
                           <span className="text-sm">
-                            {selectedOrder.contact_email}
+                            {selectedOrder.family.email}
                           </span>
                         </div>
                       )}
 
-                      {selectedOrder.contact_phone && (
+                      {selectedOrder.family?.phone && (
                         <div className="flex items-center gap-2 text-charcoal-300">
                           <Phone className="w-4 h-4" />
                           <span className="text-sm">
-                            {selectedOrder.contact_phone}
+                            {selectedOrder.family.phone}
                           </span>
                         </div>
                       )}
@@ -277,7 +301,7 @@ export default function OrdersPage() {
                               className="flex justify-between text-sm"
                             >
                               <span className="text-charcoal-300">
-                                {item.quantity}x {item.product_name}
+                                {item.quantity}x {item.product?.name || "Product"}
                               </span>
                               <span className="text-white">
                                 {formatPrice(item.unit_price * item.quantity)}
@@ -292,7 +316,7 @@ export default function OrdersPage() {
                       <div className="flex justify-between">
                         <span className="font-medium text-white">Total</span>
                         <span className="font-medium text-gold-500">
-                          {formatPrice(selectedOrder.total_amount)}
+                          {formatPrice(selectedOrder.total)}
                         </span>
                       </div>
                     </div>

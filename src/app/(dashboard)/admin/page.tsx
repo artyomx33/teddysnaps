@@ -30,11 +30,16 @@ interface Stats {
 interface Order {
   id: string;
   order_number: string;
-  total_amount: number;
+  total: number;
   status: string;
   created_at: string;
-  family: Array<{ family_name: string }> | null;
+  family: { family_name: string } | null;
   order_items: Array<{ quantity: number; product_id: string }>;
+}
+
+function pickOne<T>(value: T | T[] | null | undefined): T | null {
+  if (!value) return null;
+  return Array.isArray(value) ? value[0] ?? null : value;
 }
 
 interface Session {
@@ -79,7 +84,7 @@ export default function AdminDashboard() {
       // Today's orders
       supabase
         .from("orders")
-        .select("id, total_amount, status")
+        .select("id, total, status")
         .gte("created_at", today),
       // Total families
       supabase.from("families").select("id", { count: "exact" }),
@@ -94,7 +99,7 @@ export default function AdminDashboard() {
         .select(`
           id,
           order_number,
-          total_amount,
+          total,
           status,
           created_at,
           family:families (family_name),
@@ -113,7 +118,7 @@ export default function AdminDashboard() {
     const todayOrders = ordersRes.data || [];
     const pendingOrders = todayOrders.filter((o) => o.status === "pending").length;
     const todayRevenue = todayOrders.reduce(
-      (sum, o) => sum + (o.total_amount || 0),
+      (sum, o) => sum + (o.total || 0),
       0
     );
 
@@ -125,7 +130,15 @@ export default function AdminDashboard() {
       pendingOrders,
     });
 
-    setRecentOrders(recentOrdersRes.data || []);
+    const normalizedRecentOrders: Order[] = (recentOrdersRes.data || []).map((row) => {
+      const r = row as unknown as Record<string, unknown>;
+      return {
+        ...(r as unknown as Order),
+        family: pickOne(r.family as unknown) as Order["family"],
+      };
+    });
+
+    setRecentOrders(normalizedRecentOrders);
     setRecentSessions(sessionsRes.data || []);
     setLoading(false);
   }
@@ -324,7 +337,7 @@ export default function AdminDashboard() {
                       >
                         <div>
                           <p className="font-medium text-white">
-                            {order.family?.[0]?.family_name || "Unknown"}
+                            {order.family?.family_name || "Unknown"}
                           </p>
                           <p className="text-sm text-charcoal-400">
                             {order.order_items
@@ -334,7 +347,7 @@ export default function AdminDashboard() {
                         </div>
                         <div className="text-right">
                           <p className="font-medium text-white">
-                            {formatPrice(order.total_amount)}
+                            {formatPrice(order.total)}
                           </p>
                           <Badge
                             variant={

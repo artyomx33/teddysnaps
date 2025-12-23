@@ -23,6 +23,7 @@ import {
   getSession,
   getPricedProducts,
   getPhotosForFamily,
+  setPhotoLike,
   type Photo,
   type Family,
   type Session,
@@ -107,17 +108,19 @@ export default function GalleryPage() {
           all = [
             {
               id: "fallback-digital-10",
-              name: "Digital photo",
+              name: "Digital Edit (HD)",
               type: "digital",
-              price: 10,
-              description: "Digital download",
+              price: 2.5,
+              description:
+                "High‑resolution digital download. Includes retouching on this photo.",
             },
             {
               id: "fallback-album-50",
-              name: "Full album (digital)",
+              name: "All digital photos + 3 retouch edits",
               type: "digital",
               price: 50,
-              description: "All photos in this album",
+              description:
+                "All photos as digital downloads. Includes 3 premium retouch edits (choose your top 3 favourites; if none, we select).",
             },
           ] as DbProduct[];
         }
@@ -168,17 +171,19 @@ export default function GalleryPage() {
         all = [
           {
             id: "fallback-digital-10",
-            name: "Digital photo",
+            name: "Digital Edit (HD)",
             type: "digital",
-            price: 10,
-            description: "Digital download",
+            price: 2.5,
+            description:
+              "High‑resolution digital download. Includes retouching on this photo.",
           },
           {
             id: "fallback-album-50",
-            name: "Full album (digital)",
+            name: "All digital photos + 3 retouch edits",
             type: "digital",
             price: 50,
-            description: "All photos in this album",
+            description:
+              "All photos as digital downloads. Includes 3 premium retouch edits (choose your top 3 favourites; if none, we select).",
           },
         ] as DbProduct[];
       }
@@ -324,6 +329,9 @@ export default function GalleryPage() {
                 <p className="text-sm text-charcoal-400">
                   {sessionName} at {locationName}
                 </p>
+                <p className="text-xs text-charcoal-500 mt-1">
+                  Tap <Heart className="inline w-3.5 h-3.5 text-red-500 fill-current -mt-0.5" /> to mark your top 3 favourites for retouching.
+                </p>
               </div>
             </div>
 
@@ -449,9 +457,20 @@ export default function GalleryPage() {
 
                 {/* Like button */}
                 <button
-                  onClick={(e) => {
+                  onClick={async (e) => {
                     e.stopPropagation();
-                    toggleLike(photo.id);
+                    const nextLiked = !photo.isLiked;
+                    toggleLike(photo.id); // optimistic
+                    const res = await setPhotoLike({
+                      sessionId,
+                      familyCode,
+                      photoId: photo.id,
+                      liked: nextLiked,
+                    });
+                    if (!res.ok) {
+                      // revert on failure
+                      toggleLike(photo.id);
+                    }
                   }}
                   className={cn(
                     "absolute top-3 right-3 p-2 rounded-full transition-all",
@@ -527,6 +546,11 @@ export default function GalleryPage() {
                       : isLoadingProducts
                       ? "Loading pricing..."
                       : pricingError || "Pricing not available"}
+                    {perPhotoProduct?.description && (
+                      <p className="text-xs text-charcoal-500 mt-1">
+                        {perPhotoProduct.description}
+                      </p>
+                    )}
                   </div>
                   <Button
                     variant="primary"
@@ -563,7 +587,7 @@ export default function GalleryPage() {
               )}
               {bundleProduct && (
                 <Button variant="outline" size="sm" onClick={buyFullAlbum}>
-                  Buy full album {formatPrice(bundleProduct.price)}
+                  {bundleProduct.name} {formatPrice(bundleProduct.price)}
                 </Button>
               )}
             </div>

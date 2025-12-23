@@ -72,10 +72,22 @@ export async function createPayment({
     };
 
     const payment = await mollieClient.payments.create(paymentData);
+    const checkoutUrl = payment.getCheckoutUrl() || "";
+
+    if (!checkoutUrl) {
+      // This should basically never happen for normal "payments.create" flows.
+      // If it does, log enough to debug without leaking secrets.
+      console.error("Mollie payment created but checkout URL missing", {
+        paymentId: payment.id,
+        status: payment.status,
+        links: (payment as unknown as { _links?: unknown })?._links,
+      });
+      throw new Error("Mollie checkout URL missing");
+    }
 
     return {
       paymentId: payment.id,
-      checkoutUrl: payment.getCheckoutUrl() || "",
+      checkoutUrl,
     };
   } catch (error) {
     console.error("Failed to create Mollie payment:", error);
