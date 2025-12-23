@@ -17,6 +17,7 @@ import {
   GitMerge,
   ArrowLeftRight,
   AlertTriangle,
+  Camera,
 } from "lucide-react";
 import { AnimatePresence } from "framer-motion";
 import { Sidebar } from "@/components/layout/sidebar";
@@ -27,6 +28,14 @@ import { createClient } from "@/lib/supabase/client";
 interface Child {
   id: string;
   first_name: string;
+  reference_photo_url: string | null;
+  photo_children: { count: number }[];
+}
+
+interface HeroPhoto {
+  id: string;
+  thumbnail_url: string | null;
+  original_url: string;
 }
 
 interface Family {
@@ -36,6 +45,8 @@ interface Family {
   phone: string | null;
   access_code: string;
   location_id: string;
+  hero_photo_id: string | null;
+  hero_photo: HeroPhoto[] | null;
   children: Child[];
   location: {
     name: string;
@@ -84,7 +95,9 @@ export default function FamiliesPage() {
           phone,
           access_code,
           location_id,
-          children (id, first_name),
+          hero_photo_id,
+          hero_photo:photos!hero_photo_id (id, thumbnail_url, original_url),
+          children (id, first_name, reference_photo_url, photo_children(count)),
           location:locations (name)
         `)
         .order("family_name"),
@@ -290,6 +303,15 @@ export default function FamiliesPage() {
   const sourceFamily = selectedFamilies[0] ? families.find((f) => f.id === selectedFamilies[0]) : null;
   const destinationFamily = selectedFamilies[1] ? families.find((f) => f.id === selectedFamilies[1]) : null;
   const locationMismatch = sourceFamily && destinationFamily && sourceFamily.location_id !== destinationFamily.location_id;
+
+  // Calculate total photo count for a family (sum of all children's photo_children counts)
+  const getFamilyPhotoCount = (family: Family): number => {
+    if (!family.children) return 0;
+    return family.children.reduce((total, child) => {
+      const count = child.photo_children?.[0]?.count || 0;
+      return total + count;
+    }, 0);
+  };
 
   const filteredFamilies = families.filter(
     (family) =>
@@ -557,8 +579,23 @@ export default function FamiliesPage() {
                     )}
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 rounded-full bg-gradient-to-br from-teal-400 to-teal-600 flex items-center justify-center text-white font-serif text-lg">
-                          {family.family_name[0]}
+                        {/* Hero photo or fallback to child reference photo or initial */}
+                        <div className="w-12 h-12 rounded-full overflow-hidden bg-gradient-to-br from-teal-400 to-teal-600 flex items-center justify-center text-white font-serif text-lg flex-shrink-0">
+                          {family.hero_photo?.[0]?.thumbnail_url || family.hero_photo?.[0]?.original_url ? (
+                            <img
+                              src={family.hero_photo[0].thumbnail_url || family.hero_photo[0].original_url}
+                              alt=""
+                              className="w-full h-full object-cover"
+                            />
+                          ) : family.children?.find(c => c.reference_photo_url)?.reference_photo_url ? (
+                            <img
+                              src={family.children.find(c => c.reference_photo_url)!.reference_photo_url!}
+                              alt=""
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            family.family_name[0]
+                          )}
                         </div>
                         <div>
                           <div className="flex items-center gap-2">
@@ -582,10 +619,18 @@ export default function FamiliesPage() {
                               )}
                             </button>
                           </div>
-                          <p className="text-sm text-charcoal-400">
-                            {family.children?.map((c) => c.first_name).join(", ") ||
-                              "No children"}
-                            {family.location?.[0] && ` • ${family.location[0].name}`}
+                          <p className="text-sm text-charcoal-400 flex items-center gap-2">
+                            <span>
+                              {family.children?.map((c) => c.first_name).join(", ") ||
+                                "No children"}
+                            </span>
+                            {family.location?.[0] && (
+                              <span>• {family.location[0].name}</span>
+                            )}
+                            <span className="inline-flex items-center gap-1 text-teal-400">
+                              <Camera className="w-3 h-3" />
+                              {getFamilyPhotoCount(family)}
+                            </span>
                           </p>
                         </div>
                       </div>

@@ -119,14 +119,30 @@ def claim_job(sb, job_id: str) -> bool:
 
 
 def list_photos_for_session(sb, session_id: str) -> List[Dict[str, Any]]:
-    res = (
-        sb.table("photos")
-        .select("id, original_url, thumbnail_url")
-        .eq("session_id", session_id)
-        .order("created_at", desc=False)
-        .execute()
-    )
-    return res.data or []
+    # Supabase/PostgREST commonly paginates responses (often 1000 rows).
+    # Fetch all photos in pages to ensure we process the entire session.
+    out: List[Dict[str, Any]] = []
+    page_size = 1000
+    # Optional: resume processing by skipping the first N photos (based on created_at order).
+    # Useful when a previous run processed the first page only.
+    offset = int(os.environ.get("PHOTO_OFFSET", "0") or "0")
+
+    while True:
+        res = (
+            sb.table("photos")
+            .select("id, original_url, thumbnail_url")
+            .eq("session_id", session_id)
+            .order("created_at", desc=False)
+            .range(offset, offset + page_size - 1)
+            .execute()
+        )
+        batch = res.data or []
+        out.extend(batch)
+        if len(batch) < page_size:
+            break
+        offset += page_size
+
+    return out
 
 
 def download_image(url: str, timeout: int = 30) -> Image.Image:
@@ -208,6 +224,11 @@ def upsert_discovered_faces(sb, session_id: str, faces: List[DetectedFace]) -> L
 def cluster_embeddings(embeddings: np.ndarray) -> np.ndarray:
     if embeddings.shape[0] == 0:
         return np.array([], dtype=int)
+
+    # Skip clustering if fewer than 3 faces (HDBSCAN/DBSCAN need min 3 points)
+    # Return -1 for all faces (unclustered) - they can still be named individually
+    if embeddings.shape[0] < 3:
+        return np.full(embeddings.shape[0], -1, dtype=int)
 
     # Normalize for cosine similarity
     norms = np.linalg.norm(embeddings, axis=1, keepdims=True) + 1e-12

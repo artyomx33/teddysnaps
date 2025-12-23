@@ -415,26 +415,22 @@ export function FaceNaming({
         </div>
 
         <div className="flex items-center gap-3">
-          {!hasMatched && faceGroups.length > 0 && (
+          {faceGroups.length > 0 && (
             <Button
-              variant="outline"
+              variant={hasMatched ? "ghost" : "outline"}
               onClick={handleMatchWithAI}
               disabled={isMatching}
+              title={hasMatched ? "Re-run AI matching" : "Match faces with AI"}
             >
               {isMatching ? (
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : hasMatched ? (
+                <Check className="w-4 h-4 mr-2 text-teal-500" />
               ) : (
                 <Wand2 className="w-4 h-4 mr-2" />
               )}
-              {isMatching ? "Matching..." : "Match with AI"}
+              {isMatching ? "Matching..." : hasMatched ? "Re-match" : "Match with AI"}
             </Button>
-          )}
-
-          {hasMatched && (
-            <Badge variant="success" className="py-1">
-              <Check className="w-3 h-3 mr-1" />
-              AI Matched
-            </Badge>
           )}
 
           {lastAction && (

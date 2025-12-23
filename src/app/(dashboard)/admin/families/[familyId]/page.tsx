@@ -13,12 +13,14 @@ import {
   Loader2,
   X,
   AlertCircle,
+  Star,
 } from "lucide-react";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
 import { Card, CardContent, Button, Badge } from "@/components/ui";
 import { createClient } from "@/lib/supabase/client";
 import { removeMatch, restoreMatchesForPhoto } from "@/lib/actions/faces";
+import { setFamilyHeroPhoto } from "@/lib/actions/families";
 
 interface Child {
   id: string;
@@ -32,6 +34,7 @@ interface Family {
   family_name: string;
   access_code: string;
   email: string;
+  hero_photo_id: string | null;
   children: Child[];
 }
 
@@ -100,6 +103,7 @@ export default function FamilyDetailPage() {
   const [pendingRemovePhotoId, setPendingRemovePhotoId] = useState<string | null>(null);
   const [undoItem, setUndoItem] = useState<FamilyPhoto | null>(null);
   const [undoError, setUndoError] = useState<string | null>(null);
+  const [settingHeroPhotoId, setSettingHeroPhotoId] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchFamily() {
@@ -111,6 +115,7 @@ export default function FamilyDetailPage() {
           family_name,
           access_code,
           email,
+          hero_photo_id,
           children (
             id,
             first_name,
@@ -289,6 +294,21 @@ export default function FamilyDetailPage() {
     }
   };
 
+  const handleSetHeroPhoto = async (photoId: string) => {
+    if (!family) return;
+    setSettingHeroPhotoId(photoId);
+    try {
+      // Toggle: if already hero, clear it; otherwise set it
+      const newHeroId = family.hero_photo_id === photoId ? null : photoId;
+      await setFamilyHeroPhoto(family.id, newHeroId);
+      setFamily({ ...family, hero_photo_id: newHeroId });
+    } catch (e) {
+      console.error("Failed to set hero photo:", e);
+    } finally {
+      setSettingHeroPhotoId(null);
+    }
+  };
+
   const handleEnrollClick = (childId: string) => {
     setEnrollingChildId(childId);
     setEnrollError(null);
@@ -335,6 +355,7 @@ export default function FamilyDetailPage() {
           family_name,
           access_code,
           email,
+          hero_photo_id,
           children (
             id,
             first_name,
@@ -578,6 +599,7 @@ export default function FamilyDetailPage() {
                           alt=""
                           className="w-full h-full object-cover"
                         />
+                        {/* Remove button - shown on hover */}
                         <button
                           type="button"
                           onClick={(e) => {
@@ -586,10 +608,32 @@ export default function FamilyDetailPage() {
                             handleRemovePhoto(p).catch(() => {});
                           }}
                           disabled={pendingRemovePhotoId === p.photoId}
-                          className="absolute top-2 left-2 px-2 py-1 text-xs rounded-md bg-black/60 text-white hover:bg-black/80 transition-colors disabled:opacity-60"
+                          className="absolute top-2 left-2 px-2 py-1 text-xs rounded-md bg-black/60 text-white hover:bg-black/80 transition-colors disabled:opacity-60 opacity-0 group-hover:opacity-100"
                           title="Remove this photo from this family (undo available)"
                         >
                           {pendingRemovePhotoId === p.photoId ? "Removing..." : "Remove"}
+                        </button>
+                        {/* Set as family photo button - ALWAYS visible */}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleSetHeroPhoto(p.photoId).catch(() => {});
+                          }}
+                          disabled={settingHeroPhotoId === p.photoId}
+                          className={`absolute top-2 right-2 p-1.5 rounded-md transition-colors disabled:opacity-60 ${
+                            family?.hero_photo_id === p.photoId
+                              ? "bg-gold-500 text-white"
+                              : "bg-black/60 text-white hover:bg-gold-500/80"
+                          }`}
+                          title={family?.hero_photo_id === p.photoId ? "Remove as family photo" : "Set as family photo"}
+                        >
+                          {settingHeroPhotoId === p.photoId ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <Star className={`w-3 h-3 ${family?.hero_photo_id === p.photoId ? "fill-current" : ""}`} />
+                          )}
                         </button>
                         <div className="absolute inset-x-0 bottom-0 p-2 bg-gradient-to-t from-black/70 to-transparent">
                           <div className="flex items-center justify-between gap-2">

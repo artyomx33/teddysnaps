@@ -27,6 +27,9 @@ yarn-error.log*
 .env*.local
 .env
 
+# local upload manifests / bulk upload logs
+.upload-manifests/
+
 # vercel
 .vercel
 

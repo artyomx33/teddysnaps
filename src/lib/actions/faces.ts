@@ -129,20 +129,43 @@ export async function confirmMatch(photoId: string, childId: string) {
 
 /**
  * Remove a photo-child match
+ * ALSO resets discovered_faces so they return to the unmatched pool
  */
 export async function removeMatch(photoId: string, childId: string) {
   const supabase = await createClient();
 
-  const { error } = await supabase
+  // 1. Delete from photo_children
+  const { error: pcError } = await supabase
     .from("photo_children")
     .delete()
     .eq("photo_id", photoId)
     .eq("child_id", childId);
 
-  if (error) {
-    console.error("Error removing match:", error);
+  if (pcError) {
+    console.error("Error removing match:", pcError);
     throw new Error("Failed to remove match");
   }
+
+  // 2. Reset corresponding discovered_faces so they can be re-matched
+  // This fixes the bug where removed faces didn't return to the unmatched pool
+  const { error: dfError } = await supabase
+    .from("discovered_faces")
+    .update({
+      child_id: null,
+      is_named: false,
+      is_skipped: false,
+      confidence: null,
+    })
+    .eq("photo_id", photoId)
+    .eq("child_id", childId);
+
+  if (dfError) {
+    console.error("Error resetting discovered faces:", dfError);
+    // Don't throw - the main operation succeeded, this is cleanup
+  }
+
+  revalidatePath("/admin/faces");
+  revalidatePath("/admin/families");
 }
 
 /**
