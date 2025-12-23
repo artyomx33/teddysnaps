@@ -10,6 +10,7 @@ import {
   X,
   ChevronRight,
   Loader2,
+  Download,
 } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
@@ -24,6 +25,7 @@ import {
   getPricedProducts,
   getPhotosForFamily,
   setPhotoLike,
+  getPurchasedPhotoIds,
   type Photo,
   type Family,
   type Session,
@@ -66,6 +68,7 @@ export default function GalleryPage() {
   const [productsLoaded, setProductsLoaded] = useState(false);
   const [isLoadingProducts, setIsLoadingProducts] = useState(false);
   const [pricingError, setPricingError] = useState<string | null>(null);
+  const [purchasedIds, setPurchasedIds] = useState<Set<string>>(new Set());
 
   // Fetch gallery data
   useEffect(() => {
@@ -106,6 +109,10 @@ export default function GalleryPage() {
         const photosData = await getPhotosForFamily(sessionId, familyData.id);
 
         setPhotos(photosData);
+
+        // Fetch purchased photo IDs (paid orders)
+        const purchased = await getPurchasedPhotoIds(familyData.id);
+        setPurchasedIds(purchased);
 
         // Fetch products server-side (service role) so parent pricing always loads.
         // If nothing is priced (>0), we show a friendly "pricing not configured" message.
@@ -396,6 +403,16 @@ export default function GalleryPage() {
                 </button>
               </div>
 
+              {/* Purchased indicator */}
+              {purchasedIds.size > 0 && (
+                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gold-500/20 border border-gold-500/30">
+                  <Download className="w-4 h-4 text-gold-500" />
+                  <span className="text-sm text-gold-500 font-medium">
+                    {purchasedIds.size} HD
+                  </span>
+                </div>
+              )}
+
               {/* Cart */}
               <Link href="/checkout">
                 <Button variant="primary" className="relative">
@@ -490,6 +507,28 @@ export default function GalleryPage() {
                     className={cn("w-5 h-5", photo.isLiked && "fill-current")}
                   />
                 </button>
+
+                {/* HD Download badge for purchased photos */}
+                {purchasedIds.has(photo.id) && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      // Trigger download
+                      const link = document.createElement("a");
+                      link.href = photo.url;
+                      link.download = `teddysnaps-${photo.id}.jpg`;
+                      link.target = "_blank";
+                      document.body.appendChild(link);
+                      link.click();
+                      document.body.removeChild(link);
+                    }}
+                    className="absolute top-3 left-3 px-2 py-1.5 rounded-lg bg-gold-500 text-black text-xs font-bold flex items-center gap-1 hover:bg-gold-400 transition-colors shadow-lg"
+                    title="Download HD photo"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    HD
+                  </button>
+                )}
 
                 {/* Label */}
                 {productsLoaded && perPhotoProduct && (

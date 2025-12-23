@@ -1,7 +1,7 @@
 -- Add parent "heart"/favourite support (persisted likes)
 
 create table if not exists photo_likes (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   family_id uuid not null references families(id) on delete cascade,
   photo_id uuid not null references photos(id) on delete cascade,
   created_at timestamptz default now(),

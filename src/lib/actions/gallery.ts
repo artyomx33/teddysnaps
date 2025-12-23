@@ -339,6 +339,78 @@ export async function getPhotosForFamily(
   return base.map((p) => ({ ...p, isLiked: likedSet.has(p.id) }));
 }
 
+/**
+ * Get all photo IDs that a family has purchased (paid orders only)
+ */
+export async function getPurchasedPhotoIds(familyId: string): Promise<Set<string>> {
+  const supabase = createAdminClient();
+
+  // Get all paid orders for this family
+  const { data: orders, error: ordersError } = await supabase
+    .from("orders")
+    .select("id")
+    .eq("family_id", familyId)
+    .eq("payment_status", "paid");
+
+  if (ordersError || !orders?.length) {
+    return new Set();
+  }
+
+  const orderIds = orders.map((o: any) => o.id as string);
+
+  // Get all order items for these orders
+  const { data: items, error: itemsError } = await supabase
+    .from("order_items")
+    .select("photo_id")
+    .in("order_id", orderIds)
+    .not("photo_id", "is", null);
+
+  if (itemsError || !items?.length) {
+    return new Set();
+  }
+
+  return new Set(items.map((i: any) => i.photo_id as string));
+}
+
+/**
+ * Get purchased photos with full details (for order confirmation page)
+ */
+export async function getPurchasedPhotosForOrder(orderId: string): Promise<Array<{
+  id: string;
+  thumbnailUrl: string;
+  originalUrl: string;
+}>> {
+  const supabase = createAdminClient();
+
+  const { data: items, error } = await supabase
+    .from("order_items")
+    .select(`
+      photo_id,
+      photo:photos (
+        id,
+        thumbnail_url,
+        original_url
+      )
+    `)
+    .eq("order_id", orderId)
+    .not("photo_id", "is", null);
+
+  if (error || !items?.length) {
+    return [];
+  }
+
+  return items
+    .filter((item: any) => item.photo)
+    .map((item: any) => {
+      const photo = Array.isArray(item.photo) ? item.photo[0] : item.photo;
+      return {
+        id: photo.id,
+        thumbnailUrl: photo.thumbnail_url || photo.original_url,
+        originalUrl: photo.original_url,
+      };
+    });
+}
+
 // Get all photos in a session (for sessions without face matching yet)
 export async function getAllPhotosInSession(sessionId: string): Promise<Photo[]> {
   const supabase = await createClient();

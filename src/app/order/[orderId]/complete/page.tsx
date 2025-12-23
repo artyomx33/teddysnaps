@@ -18,11 +18,13 @@ import {
   Share2,
   Loader2,
   RefreshCw,
+  Download,
 } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { Button, Card, CardContent, Badge } from "@/components/ui";
 import { getOrder, createPaymentForOrder, checkAndUpdatePaymentStatus } from "@/lib/actions/orders";
+import { getPurchasedPhotosForOrder } from "@/lib/actions/gallery";
 import { formatPrice, formatDate } from "@/lib/utils";
 
 interface Order {
@@ -80,12 +82,23 @@ export default function OrderCompletePage() {
   const [copied, setCopied] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [purchasedPhotos, setPurchasedPhotos] = useState<Array<{
+    id: string;
+    thumbnailUrl: string;
+    originalUrl: string;
+  }>>([]);
 
   useEffect(() => {
     async function fetchOrder() {
       try {
         const data = await getOrder(orderId);
         setOrder(data as Order);
+
+        // Fetch purchased photos if order is paid
+        if (data && data.payment_status === "paid") {
+          const photos = await getPurchasedPhotosForOrder(orderId);
+          setPurchasedPhotos(photos);
+        }
       } catch (error) {
         console.error("Failed to fetch order:", error);
       } finally {
@@ -386,6 +399,53 @@ export default function OrderCompletePage() {
             </CardContent>
           </Card>
         </motion.div>
+
+        {/* Your Photos - Download Section (only when paid) */}
+        {isPaid && purchasedPhotos.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.35 }}
+            className="mt-6"
+          >
+            <Card variant="glow">
+              <CardContent className="space-y-4">
+                <h3 className="text-lg font-medium text-white flex items-center gap-2">
+                  <Download className="w-5 h-5 text-gold-500" />
+                  Your Photos ({purchasedPhotos.length})
+                </h3>
+                <p className="text-sm text-charcoal-400">
+                  Tap any photo to download the high-resolution version.
+                </p>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  {purchasedPhotos.map((photo) => (
+                    <div key={photo.id} className="relative group">
+                      <a
+                        href={photo.originalUrl}
+                        download={`teddysnaps-${photo.id}.jpg`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block aspect-[4/3] rounded-lg overflow-hidden bg-charcoal-800 hover:ring-2 hover:ring-gold-500 transition-all"
+                      >
+                        <img
+                          src={photo.thumbnailUrl}
+                          alt=""
+                          className="w-full h-full object-cover"
+                        />
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                          <div className="px-3 py-1.5 rounded-lg bg-gold-500 text-black text-sm font-bold flex items-center gap-1">
+                            <Download className="w-4 h-4" />
+                            HD
+                          </div>
+                        </div>
+                      </a>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
 
         {/* Payment Actions for Pending/Failed */}
         {(isPending || isFailed) && (
