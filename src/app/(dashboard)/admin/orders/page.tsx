@@ -60,6 +60,8 @@ export default function OrdersPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [isBackfilling, setIsBackfilling] = useState(false);
+  const [backfillMessage, setBackfillMessage] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchOrders() {
@@ -150,6 +152,43 @@ export default function OrdersPage() {
         <Header title="Orders" subtitle="Manage customer orders" />
 
         <div className="p-6">
+          <div className="flex items-center justify-end mb-4">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={isBackfilling}
+              onClick={async () => {
+                setIsBackfilling(true);
+                setBackfillMessage(null);
+                try {
+                  const res = await fetch("/api/retouch/backfill", {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body: JSON.stringify({ limit: 500 }),
+                  });
+                  const json = (await res.json()) as any;
+                  if (!json?.ok) {
+                    setBackfillMessage(json?.message || "Backfill failed");
+                  } else {
+                    setBackfillMessage(
+                      `Backfilled ${json.processedOrders} paid orders → ${json.createdTasks} retouch tasks`
+                    );
+                  }
+                } catch {
+                  setBackfillMessage("Backfill failed");
+                } finally {
+                  setIsBackfilling(false);
+                }
+              }}
+            >
+              {isBackfilling ? "Backfilling..." : "Backfill retouch tasks"}
+            </Button>
+          </div>
+
+          {backfillMessage && (
+            <div className="mb-4 text-sm text-charcoal-300">{backfillMessage}</div>
+          )}
+
           {orders.length === 0 ? (
             <Card variant="glass" className="p-12 text-center">
               <Package className="w-12 h-12 text-charcoal-500 mx-auto mb-4" />

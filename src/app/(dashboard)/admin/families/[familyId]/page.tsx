@@ -105,6 +105,7 @@ export default function FamilyDetailPage() {
   const [enrollingChildId, setEnrollingChildId] = useState<string | null>(null);
   const [enrollError, setEnrollError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const retouchFileInputRef = useRef<HTMLInputElement>(null);
 
   const [familyPhotos, setFamilyPhotos] = useState<FamilyPhoto[]>([]);
   const [photosLoading, setPhotosLoading] = useState(false);
@@ -114,6 +115,15 @@ export default function FamilyDetailPage() {
   const [undoItem, setUndoItem] = useState<FamilyPhoto | null>(null);
   const [undoError, setUndoError] = useState<string | null>(null);
   const [settingHeroPhotoId, setSettingHeroPhotoId] = useState<string | null>(null);
+
+  const [paidOrdersCount, setPaidOrdersCount] = useState(0);
+  const [retouchByPhotoId, setRetouchByPhotoId] = useState<
+    Record<string, { status: string; retouchedUrl: string | null }>
+  >({});
+  const [openRetouchCount, setOpenRetouchCount] = useState(0);
+  const [retouchUploadPhotoId, setRetouchUploadPhotoId] = useState<string | null>(null);
+  const [retouchUploadingPhotoId, setRetouchUploadingPhotoId] = useState<string | null>(null);
+  const [retouchUploadError, setRetouchUploadError] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchFamily() {
@@ -148,6 +158,40 @@ export default function FamilyDetailPage() {
     }
 
     fetchFamily();
+  }, [familyId]);
+
+  useEffect(() => {
+    async function fetchPurchasesAndRetouch() {
+      const supabase = createClient();
+      const [paidOrdersRes, retouchRes] = await Promise.all([
+        supabase
+          .from("orders")
+          .select("id", { count: "exact", head: true })
+          .eq("family_id", familyId)
+          .eq("payment_status", "paid"),
+        supabase
+          .from("retouch_tasks")
+          .select("photo_id, status, retouched_url")
+          .eq("family_id", familyId),
+      ]);
+
+      setPaidOrdersCount(paidOrdersRes.count || 0);
+
+      const map: Record<string, { status: string; retouchedUrl: string | null }> = {};
+      let open = 0;
+      for (const row of retouchRes.data || []) {
+        const photoId = (row as any).photo_id as string;
+        const status = (row as any).status as string;
+        const retouchedUrl = ((row as any).retouched_url ?? null) as string | null;
+        if (!photoId) continue;
+        map[photoId] = { status, retouchedUrl };
+        if (status !== "delivered") open += 1;
+      }
+      setRetouchByPhotoId(map);
+      setOpenRetouchCount(open);
+    }
+
+    fetchPurchasesAndRetouch().catch(() => {});
   }, [familyId]);
 
   const fetchFamilyPhotos = useCallback(async () => {
@@ -409,6 +453,42 @@ export default function FamilyDetailPage() {
     }
   };
 
+  const triggerRetouchUpload = (photoId: string) => {
+    setRetouchUploadError(null);
+    setRetouchUploadPhotoId(photoId);
+    retouchFileInputRef.current?.click();
+  };
+
+  const handleRetouchFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    const photoId = retouchUploadPhotoId;
+    if (!file || !photoId) return;
+
+    setRetouchUploadingPhotoId(photoId);
+    setRetouchUploadError(null);
+    try {
+      const fd = new FormData();
+      fd.set("familyId", familyId);
+      fd.set("photoId", photoId);
+      fd.set("file", file);
+
+      const res = await fetch("/api/retouch/upload", { method: "POST", body: fd });
+      const json = (await res.json()) as any;
+      if (!json?.ok) throw new Error(json?.message || "Upload failed");
+
+      setRetouchByPhotoId((prev) => ({
+        ...prev,
+        [photoId]: { status: "done", retouchedUrl: json.url ?? null },
+      }));
+    } catch (err) {
+      setRetouchUploadError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setRetouchUploadingPhotoId(null);
+      setRetouchUploadPhotoId(null);
+      if (retouchFileInputRef.current) retouchFileInputRef.current.value = "";
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex min-h-screen">
@@ -480,6 +560,16 @@ export default function FamilyDetailPage() {
               <div className="flex items-center gap-2 text-charcoal-300">
                 <MessageCircle className="w-4 h-4" />
                 <span className="text-sm">{family.phone}</span>
+              </div>
+            )}
+            {paidOrdersCount > 0 && (
+              <div className="flex items-center gap-2 text-charcoal-300">
+                <Badge variant="success">{paidOrdersCount} paid orders</Badge>
+              </div>
+            )}
+            {openRetouchCount > 0 && (
+              <div className="flex items-center gap-2 text-charcoal-300">
+                <Badge variant="warning">{openRetouchCount} retouch open</Badge>
               </div>
             )}
           </div>
@@ -646,6 +736,30 @@ export default function FamilyDetailPage() {
                           alt=""
                           className="w-full h-full object-cover"
                         />
+
+                        {retouchByPhotoId[p.photoId] && (
+                          <div className="absolute bottom-2 left-2">
+                            <Badge variant="default" className="text-[11px] bg-black/60 border border-charcoal-700">
+                              {retouchByPhotoId[p.photoId].status}
+                            </Badge>
+                          </div>
+                        )}
+
+                        {retouchByPhotoId[p.photoId] && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              triggerRetouchUpload(p.photoId);
+                            }}
+                            disabled={retouchUploadingPhotoId === p.photoId}
+                            className="absolute bottom-2 right-2 px-2 py-1 text-[11px] rounded-md bg-teal-500/30 text-teal-100 hover:bg-teal-500/45 transition-colors disabled:opacity-60 opacity-0 group-hover:opacity-100"
+                            title="Upload retouched file"
+                          >
+                            {retouchUploadingPhotoId === p.photoId ? "Uploading..." : "Upload"}
+                          </button>
+                        )}
                         {/* Remove button - shown on hover */}
                         <button
                           type="button"
@@ -750,6 +864,29 @@ export default function FamilyDetailPage() {
             className="hidden"
             onChange={handleFileSelect}
           />
+
+          <input
+            ref={retouchFileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleRetouchFileSelect}
+          />
+
+          {retouchUploadError && (
+            <Card variant="glass" className="border-red-500/30 bg-red-500/10">
+              <CardContent className="flex items-center gap-3 py-3">
+                <AlertCircle className="w-5 h-5 text-red-400" />
+                <p className="text-red-400">{retouchUploadError}</p>
+                <button
+                  onClick={() => setRetouchUploadError(null)}
+                  className="ml-auto text-red-400 hover:text-red-300"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Instructions */}
           <Card variant="glass">

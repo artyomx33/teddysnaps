@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { mollieClient } from "@/lib/mollie/client";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { createEntitlementsAndRetouchTasksForOrder } from "@/lib/retouch/entitlements";
 
 export const runtime = "nodejs";
 
@@ -127,6 +128,14 @@ export async function POST(request: NextRequest) {
     console.log(
       `Payment ${paymentId} for order ${orderId}: ${payment.status}`
     );
+
+    // If paid, generate entitlements + retouch tasks (idempotent via upserts)
+    if (paymentStatus === "paid") {
+      const res = await createEntitlementsAndRetouchTasksForOrder(orderId);
+      if (!res.ok) {
+        console.error("[mollie webhook] Failed to create retouch tasks:", res.message);
+      }
+    }
 
     return NextResponse.json({ received: true });
   } catch (error) {

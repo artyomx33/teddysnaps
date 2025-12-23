@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createPayment } from "@/lib/mollie/client";
 import { getBaseUrl } from "@/lib/base-url";
 import { revalidatePath } from "next/cache";
+import { createEntitlementsAndRetouchTasksForOrder } from "@/lib/retouch/entitlements";
 
 export interface OrderItem {
   photoId: string | null;
@@ -341,6 +342,13 @@ export async function checkAndUpdatePaymentStatus(orderId: string) {
 
     revalidatePath(`/order/${orderId}/complete`);
     revalidatePath("/admin/orders");
+
+    // Also generate entitlements + retouch tasks (idempotent)
+    try {
+      await createEntitlementsAndRetouchTasksForOrder(orderId);
+    } catch (e) {
+      console.error("[checkAndUpdatePaymentStatus] Failed to create retouch tasks:", e);
+    }
 
     return { status: "paid", message: "Payment confirmed!" };
   }
