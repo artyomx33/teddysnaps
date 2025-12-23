@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Brain,
@@ -8,17 +8,10 @@ import {
   Loader2,
   CheckCircle,
   AlertTriangle,
-  Save,
+  Server,
 } from "lucide-react";
 import { Button, Card, CardContent, Badge } from "@/components/ui";
-import {
-  discoverFacesInBatch,
-  clusterFaces,
-  type DiscoveryProgress,
-  type DiscoveredFaceData,
-} from "@/lib/face-recognition";
-import { uploadFaceCrop } from "@/lib/actions/upload";
-import { saveDiscoveredFaces, updateFaceClusters } from "@/lib/actions/faces";
+import { enqueueFaceJob, getFaceJobForSession, type FaceJob } from "@/lib/actions/face-jobs";
 
 interface FaceDiscoveryProps {
   sessionId: string;
@@ -32,102 +25,63 @@ export function FaceDiscovery({
   onComplete,
 }: FaceDiscoveryProps) {
   const [isProcessing, setIsProcessing] = useState(false);
-  const [progress, setProgress] = useState<DiscoveryProgress | null>(null);
-  const [totalFacesFound, setTotalFacesFound] = useState(0);
+  const [job, setJob] = useState<FaceJob | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isComplete, setIsComplete] = useState(false);
-  const [phase, setPhase] = useState<"detecting" | "clustering" | "done">("detecting");
 
-  const handleProgress = useCallback((p: DiscoveryProgress) => {
-    setProgress(p);
-    setTotalFacesFound(p.totalFacesSoFar);
-  }, []);
+  const pollJob = useCallback(async () => {
+    const current = await getFaceJobForSession(sessionId);
+    if (!current) return;
+    setJob(current);
 
-  // Handle batch completion (incremental saving)
-  const handleBatchComplete = useCallback(async (batchFaces: DiscoveredFaceData[]) => {
-    // Upload face crops
-    const facesToSave: Array<{
-      photoId: string;
-      descriptor: number[];
-      cropUrl: string;
-      bbox: { x: number; y: number; width: number; height: number };
-      detectionScore: number;
-    }> = [];
-
-    for (const face of batchFaces) {
-      const faceId = crypto.randomUUID();
-      const cropUrl = await uploadFaceCrop(sessionId, faceId, face.cropBlob);
-
-      facesToSave.push({
-        photoId: face.photoId,
-        descriptor: face.descriptor,
-        cropUrl,
-        bbox: face.bbox,
-        detectionScore: face.detectionScore,
-      });
+    if (current.status === "complete") {
+      setIsProcessing(false);
+      setIsComplete(true);
+      onComplete(current.faces_total ?? 0);
     }
 
-    // Save to database incrementally
-    await saveDiscoveredFaces(sessionId, facesToSave);
-  }, [sessionId]);
+    if (current.status === "failed") {
+      setIsProcessing(false);
+      setError(current.error || "Face processing failed. Please retry.");
+    }
+  }, [sessionId, onComplete]);
+
+  // If a job exists (queued/running), keep polling.
+  useEffect(() => {
+    let timer: ReturnType<typeof setInterval> | null = null;
+
+    const shouldPoll = job?.status === "queued" || job?.status === "running";
+    if (shouldPoll) {
+      timer = setInterval(() => {
+        pollJob().catch(() => {});
+      }, 1500);
+    }
+
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [job?.status, pollJob]);
 
   const startDiscovery = async () => {
     if (photos.length === 0) return;
 
     setIsProcessing(true);
     setError(null);
-    setTotalFacesFound(0);
     setIsComplete(false);
-    setPhase("detecting");
 
     try {
-      // Phase 1: Discover all faces with incremental saving
-      const discoveredFaces = await discoverFacesInBatch(
-        photos,
-        handleProgress,
-        handleBatchComplete
-      );
-
-      // Phase 2: Cluster similar faces
-      setPhase("clustering");
-
-      // Get saved face IDs from database
-      const { data: savedFaces } = await fetch(`/api/faces?session=${sessionId}`).then(r => r.json());
-
-      if (savedFaces && savedFaces.length > 0) {
-        const clusterableItems = savedFaces.map((f: any) => ({
-          id: f.id,
-          descriptor: f.face_descriptor,
-        }));
-
-        const clusters = clusterFaces(clusterableItems);
-
-        // Update cluster assignments
-        const assignments = clusters.flatMap((cluster) =>
-          cluster.items.map((faceId) => ({
-            faceId,
-            clusterId: cluster.id,
-          }))
-        );
-
-        await updateFaceClusters(assignments);
-      }
-
-      setPhase("done");
-      setIsComplete(true);
-      onComplete(discoveredFaces.length);
+      const enqueued = await enqueueFaceJob(sessionId);
+      setJob(enqueued);
+      await pollJob();
     } catch (err) {
       console.error("Discovery failed:", err);
-      setError("Face discovery failed. Please try again.");
+      setError("Failed to start server processing. Please try again.");
     } finally {
-      setIsProcessing(false);
-      setProgress(null);
+      // Do not flip isProcessing off here; job runs async on the worker.
     }
   };
 
-  const progressPercent = progress
-    ? Math.round((progress.current / progress.total) * 100)
-    : 0;
+  const progressPercent = job ? Math.round((job.progress || 0) * 100) : 0;
 
   return (
     <Card variant="glass">
@@ -143,7 +97,7 @@ export function FaceDiscovery({
                 Face Discovery
               </h3>
               <p className="text-sm text-charcoal-400">
-                Detect and extract all faces from {photos.length} photos
+                Run server-side face extraction and clustering for {photos.length} photos
               </p>
             </div>
           </div>
@@ -154,15 +108,15 @@ export function FaceDiscovery({
               disabled={photos.length === 0}
               variant="secondary"
             >
-              <Brain className="w-4 h-4 mr-2" />
-              Start Discovery
+              <Server className="w-4 h-4 mr-2" />
+              Start Server Processing
             </Button>
           )}
         </div>
 
         {/* Progress */}
         <AnimatePresence>
-          {isProcessing && progress && (
+          {isProcessing && job && (
             <motion.div
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: "auto" }}
@@ -171,9 +125,7 @@ export function FaceDiscovery({
             >
               <div className="flex items-center justify-between text-sm">
                 <span className="text-charcoal-400">
-                  {phase === "detecting"
-                    ? `Processing photo ${progress.current} of ${progress.total}`
-                    : "Clustering similar faces..."}
+                  {job.message || (job.status === "queued" ? "Queued..." : "Processing...")}
                 </span>
                 <span className="text-white">{progressPercent}%</span>
               </div>
@@ -188,20 +140,18 @@ export function FaceDiscovery({
 
               <div className="flex items-center gap-2 text-sm text-charcoal-400">
                 <Loader2 className="w-4 h-4 animate-spin text-purple-400" />
-                {progress.status === "loading" && "Loading image..."}
-                {progress.status === "detecting" && "Detecting faces..."}
-                {progress.status === "cropping" && `Found ${progress.facesFound} face(s), extracting...`}
-                {progress.status === "saving" && (
-                  <>
-                    <Save className="w-4 h-4 text-teal-400" />
-                    Saving batch...
-                  </>
-                )}
+                {job.status === "queued" && "Waiting for worker..."}
+                {job.status === "running" && "Extracting faces and clustering..."}
               </div>
 
-              <div className="text-sm text-purple-300">
-                {totalFacesFound} faces discovered (saved incrementally)
-              </div>
+              {(job.photos_total || job.photos_done || job.faces_total) && (
+                <div className="text-sm text-purple-300">
+                  {typeof job.photos_done === "number" && typeof job.photos_total === "number"
+                    ? `${job.photos_done}/${job.photos_total} photos • `
+                    : ""}
+                  {typeof job.faces_total === "number" ? `${job.faces_total} faces found` : ""}
+                </div>
+              )}
             </motion.div>
           )}
         </AnimatePresence>
@@ -223,7 +173,7 @@ export function FaceDiscovery({
 
               <div className="p-4 bg-purple-500/10 border border-purple-500/20 rounded-lg">
                 <p className="text-lg font-serif text-white mb-1">
-                  {totalFacesFound} faces discovered & clustered
+                  {(job?.faces_total ?? 0)} faces discovered & clustered
                 </p>
                 <p className="text-sm text-purple-300">
                   Go to the Faces page to name and organize them

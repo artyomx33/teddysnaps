@@ -28,8 +28,9 @@ import { cn } from "@/lib/utils";
 import { matchAllFaces, SuggestedMatch } from "@/lib/face-recognition/matcher";
 
 function getConfidenceColor(similarity: number): string {
-  if (similarity >= 0.95) return "bg-teal-500 text-white"; // Green - high confidence
-  if (similarity >= 0.85) return "bg-amber-500 text-white"; // Yellow - good match
+  // similarity is 0-1 (cosine mapped to [0,1])
+  if (similarity >= 0.78) return "bg-teal-500 text-white"; // High confidence
+  if (similarity >= 0.68) return "bg-amber-500 text-white"; // Likely
   return "bg-charcoal-600 text-charcoal-300"; // Gray - low confidence
 }
 
@@ -279,7 +280,7 @@ export function FaceNaming({
       // Run AI matching (client-side, fast!)
       const matchResults = matchAllFaces(unnamedForMatching, namedForMatching);
 
-      // Update face groups with suggestions
+      // Update face groups with suggestions (do not auto-select; humans label clusters)
       setFaceGroups((prev) =>
         prev.map((group) => {
           // Find matches for any face in this group
@@ -289,14 +290,10 @@ export function FaceNaming({
           // Look up by clusterId first (if clustered), then by face id
           const suggestions = matchResults.get(group.clusterId) || matchResults.get(faceId) || [];
 
-          // Auto-select if top match is >= 85%
-          const topMatch = suggestions[0];
-          const autoSelect = topMatch && topMatch.similarity >= 0.85 ? topMatch.childId : null;
-
           return {
             ...group,
             suggestions,
-            selectedChildId: autoSelect || group.selectedChildId,
+            selectedChildId: group.selectedChildId,
           };
         })
       );

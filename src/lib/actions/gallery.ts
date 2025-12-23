@@ -14,6 +14,7 @@ export interface Family {
   family_name: string;
   email: string | null;
   phone: string | null;
+  location_id?: string;
   children: Array<{
     id: string;
     first_name: string;
@@ -37,6 +38,7 @@ export async function getFamilyByAccessCode(accessCode: string): Promise<Family 
     .from("families")
     .select(`
       id,
+      location_id,
       family_name,
       email,
       phone,
@@ -54,6 +56,31 @@ export async function getFamilyByAccessCode(accessCode: string): Promise<Family 
   }
 
   return family;
+}
+
+export async function getSessionsForLocation(locationId: string): Promise<Session[]> {
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("photo_sessions")
+    .select(`
+      id,
+      name,
+      shoot_date,
+      location:locations (name)
+    `)
+    .eq("location_id", locationId)
+    .order("shoot_date", { ascending: false });
+
+  if (error) {
+    console.error("Error fetching sessions:", error);
+    return [];
+  }
+
+  return (data || []).map((s: any) => ({
+    ...s,
+    location: (s.location as Array<{ name: string }>)?.[0] ?? { name: "" },
+  })) as Session[];
 }
 
 // Get session with location info
@@ -104,17 +131,19 @@ export async function getPhotosForFamily(
 
   const childIds = children.map((c) => c.id);
 
-  // Get photos that match any of the children
+  // Get confirmed photos that match any of the children (parent gallery shows confirmed only)
   const { data: photoMatches, error: matchError } = await supabase
     .from("photo_children")
     .select(`
-      photo:photos (
+      is_confirmed,
+      photo:photos!inner (
         id,
         original_url,
         thumbnail_url,
         session_id
       )
     `)
+    .eq("is_confirmed", true)
     .in("child_id", childIds);
 
   if (matchError) {
@@ -126,7 +155,17 @@ export async function getPhotosForFamily(
   const photoMap = new Map<string, Photo>();
 
   for (const match of photoMatches || []) {
-    const photoArr = match.photo as Array<{
+    const row = match as unknown as {
+      is_confirmed?: boolean;
+      photo: Array<{
+        id: string;
+        original_url: string;
+        thumbnail_url: string;
+        session_id: string;
+      }>;
+    };
+
+    const photoArr = row.photo as Array<{
       id: string;
       original_url: string;
       thumbnail_url: string;
@@ -134,7 +173,9 @@ export async function getPhotosForFamily(
     }>;
     const photo = photoArr?.[0];
 
-    if (photo && photo.session_id === sessionId && !photoMap.has(photo.id)) {
+    const isConfirmed = row.is_confirmed === true;
+
+    if (photo && photo.session_id === sessionId && isConfirmed && !photoMap.has(photo.id)) {
       photoMap.set(photo.id, {
         id: photo.id,
         url: photo.original_url,

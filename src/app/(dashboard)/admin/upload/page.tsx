@@ -23,11 +23,7 @@ import {
   createLocation,
   getSessionPhotos,
 } from "@/lib/actions/upload";
-import { getEnrolledChildren, savePhotoMatches } from "@/lib/actions/faces";
-import {
-  processPhotoBatch,
-  type ProcessingProgress,
-} from "@/lib/face-recognition/processor";
+import { enqueueFaceJob, getFaceJobForSession, type FaceJob } from "@/lib/actions/face-jobs";
 
 export default function UploadPage() {
   const [locations, setLocations] = useState<Array<{ id: string; name: string }>>([]);
@@ -36,7 +32,7 @@ export default function UploadPage() {
   const [showAddLocation, setShowAddLocation] = useState(false);
   const [newLocationName, setNewLocationName] = useState("");
   const [isProcessingAI, setIsProcessingAI] = useState(false);
-  const [aiProgress, setAiProgress] = useState<ProcessingProgress | null>(null);
+  const [aiJob, setAiJob] = useState<FaceJob | null>(null);
   const [aiComplete, setAiComplete] = useState(false);
 
   const {
@@ -159,14 +155,44 @@ export default function UploadPage() {
     setProcessing(false);
   }, [sessionId, files, updateFile, setProcessing]);
 
+  const pollJob = useCallback(async (sid: string) => {
+    const current = await getFaceJobForSession(sid);
+    if (!current) return;
+    setAiJob(current);
+    if (current.status === "complete") {
+      setAiComplete(true);
+      setIsProcessingAI(false);
+    }
+    if (current.status === "failed") {
+      setIsProcessingAI(false);
+      console.error("Face job failed:", current.error);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!sessionId) return;
+    if (!aiJob || (aiJob.status !== "queued" && aiJob.status !== "running")) return;
+
+    const t = setInterval(() => {
+      pollJob(sessionId).catch(() => {});
+    }, 1500);
+
+    return () => clearInterval(t);
+  }, [aiJob?.status, pollJob, sessionId]);
+
+  // If a job already exists for this session, load it (useful on refresh).
+  useEffect(() => {
+    if (!sessionId) return;
+    pollJob(sessionId).catch(() => {});
+  }, [sessionId, pollJob]);
+
   const startAIProcessing = useCallback(async () => {
     if (!sessionId) return;
 
     setIsProcessingAI(true);
-    setAiProgress(null);
 
     try {
-      // Get photos from database
+      // Ensure there are photos, then enqueue server worker job
       const photos = await getSessionPhotos(sessionId);
       if (photos.length === 0) {
         console.log("No photos to process");
@@ -174,38 +200,13 @@ export default function UploadPage() {
         return;
       }
 
-      // Get enrolled children
-      const enrolledChildren = await getEnrolledChildren();
-
-      // Process photos with AI
-      const results = await processPhotoBatch(
-        photos.map((p) => ({
-          id: p.id,
-          url: p.original_url,
-          thumbnailUrl: p.thumbnail_url,
-        })),
-        enrolledChildren,
-        (progress) => setAiProgress(progress)
-      );
-
-      // Save matches to database
-      const matches = results.flatMap((result) =>
-        result.matches.map((match) => ({
-          photoId: result.photoId,
-          childId: match.childId,
-          confidence: match.confidence,
-        }))
-      );
-
-      if (matches.length > 0) {
-        await savePhotoMatches(matches);
-      }
-
-      setAiComplete(true);
+      const job = await enqueueFaceJob(sessionId);
+      setAiJob(job);
+      await pollJob(sessionId);
     } catch (error) {
       console.error("AI processing failed:", error);
     } finally {
-      setIsProcessingAI(false);
+      // Keep isProcessingAI true while job runs async; polling will flip it.
     }
   }, [sessionId]);
 
@@ -365,39 +366,38 @@ export default function UploadPage() {
                         ? "Processing Photos..."
                         : "AI Face Recognition Ready"}
                     </h3>
-                    {isProcessingAI && aiProgress ? (
+                    {isProcessingAI && aiJob ? (
                       <div className="space-y-2">
                         <p className="text-sm text-charcoal-400">
-                          Processing photo {aiProgress.current} of {aiProgress.total}
-                          {" - "}
+                          {aiJob?.message || "Processing..."}{" "}
                           <span className="text-teal-400">
-                            {aiProgress.status === "detecting"
-                              ? "Detecting faces..."
-                              : aiProgress.status === "matching"
-                              ? "Matching children..."
-                              : aiProgress.status === "complete"
+                            {aiJob?.status === "queued"
+                              ? "Queued"
+                              : aiJob?.status === "running"
+                              ? "Running"
+                              : aiJob?.status === "complete"
                               ? "Done"
-                              : "Error"}
+                              : aiJob?.status === "failed"
+                              ? "Failed"
+                              : ""}
                           </span>
                         </p>
                         <div className="w-full h-2 bg-charcoal-800 rounded-full overflow-hidden">
                           <div
                             className="h-full bg-teal-500 transition-all duration-300"
                             style={{
-                              width: `${(aiProgress.current / aiProgress.total) * 100}%`,
+                              width: `${Math.round((aiJob?.progress || 0) * 100)}%`,
                             }}
                           />
                         </div>
                       </div>
                     ) : aiComplete ? (
                       <p className="text-sm text-green-400">
-                        Photos have been sorted by child. Families can now view
-                        their photos in the gallery!
+                        Face extraction and clustering is complete. Go to Admin → Faces to label clusters.
                       </p>
                     ) : (
                       <p className="text-sm text-charcoal-400">
-                        Click &quot;Process with AI&quot; to automatically sort photos
-                        by child using face recognition.
+                        Start server-side face discovery to cluster everyone. Then label clusters in Admin → Faces.
                       </p>
                     )}
                     {!isProcessingAI && !aiComplete && (
@@ -409,7 +409,7 @@ export default function UploadPage() {
                         disabled={!sessionId}
                       >
                         <Sparkles className="w-4 h-4 mr-2" />
-                        Process with AI
+                        Start Face Processing (Server)
                       </Button>
                     )}
                   </div>

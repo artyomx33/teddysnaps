@@ -25,7 +25,6 @@ import {
   getFamilyByAccessCode,
   getSession,
   getPhotosForFamily,
-  getAllPhotosInSession,
   type Photo,
   type Family,
   type Session,
@@ -93,13 +92,8 @@ export default function GalleryPage() {
         // Set cart context
         setContext(familyData.id, sessionId);
 
-        // Fetch photos for this family
-        let photosData = await getPhotosForFamily(sessionId, familyData.id);
-
-        // If no matched photos, fall back to all session photos
-        if (photosData.length === 0) {
-          photosData = await getAllPhotosInSession(sessionId);
-        }
+        // Fetch confirmed photos for this family (no fallback to all photos)
+        const photosData = await getPhotosForFamily(sessionId, familyData.id);
 
         setPhotos(photosData);
       } catch (err) {
@@ -195,11 +189,11 @@ export default function GalleryPage() {
           <CardContent className="text-center py-12">
             <ShoppingCart className="w-12 h-12 text-charcoal-500 mx-auto mb-4" />
             <h1 className="text-xl font-serif text-white mb-2">
-              No Photos Available
+              Photos are being prepared
             </h1>
             <p className="text-charcoal-400 mb-6">
-              Photos for this session haven&apos;t been uploaded yet. Please check
-              back later!
+              We&apos;re currently sorting and confirming photos for your family.
+              Please check back a bit later.
             </p>
             <Link href="/">
               <Button variant="primary">Return Home</Button>

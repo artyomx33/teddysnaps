@@ -82,6 +82,23 @@ export interface SuggestedMatch {
   similarity: number; // 0-1, higher is better
 }
 
+function cosineSimilarity(a: number[], b: number[]): number {
+  let dot = 0;
+  let na = 0;
+  let nb = 0;
+  const n = Math.min(a.length, b.length);
+  for (let i = 0; i < n; i++) {
+    const av = a[i];
+    const bv = b[i];
+    dot += av * bv;
+    na += av * av;
+    nb += bv * bv;
+  }
+  const denom = Math.sqrt(na) * Math.sqrt(nb);
+  if (!denom) return 0;
+  return dot / denom; // [-1, 1]
+}
+
 /**
  * Find top N matching children for a face descriptor
  * Returns matches sorted by similarity (highest first)
@@ -95,22 +112,15 @@ export function findTopMatches(
     descriptor: number[];
   }>,
   maxResults: number = 3,
-  minSimilarity: number = 0.5
+  minSimilarity: number = 0.65
 ): SuggestedMatch[] {
   const matches: SuggestedMatch[] = [];
 
   for (const named of namedFaces) {
-    // Calculate Euclidean distance
-    let sum = 0;
-    for (let i = 0; i < faceDescriptor.length; i++) {
-      sum += (faceDescriptor[i] - named.descriptor[i]) ** 2;
-    }
-    const distance = Math.sqrt(sum);
-
-    // Convert distance to similarity (0-1)
-    // face-api.js distances: 0-0.4 = same person, 0.6+ = different
-    // Map 0->1, 0.6->0.4, 1.0->0
-    const similarity = Math.max(0, 1 - distance);
+    // InsightFace/ArcFace-style embeddings work best with cosine similarity.
+    // Convert from [-1, 1] to [0, 1] for UI friendliness.
+    const cos = cosineSimilarity(faceDescriptor, named.descriptor);
+    const similarity = Math.max(0, Math.min(1, (cos + 1) / 2));
 
     if (similarity >= minSimilarity) {
       matches.push({
