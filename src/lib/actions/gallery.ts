@@ -42,10 +42,11 @@ export interface Product {
 export async function getPricedProducts(): Promise<Product[]> {
   // Use service role so parent gallery can always read pricing even if RLS is not applied yet.
   const supabase = createAdminClient();
+  // IMPORTANT: Do not filter by price in PostgREST. We've seen cases where numeric filters
+  // unexpectedly return empty sets depending on column type/casting. Filter in code instead.
   const { data, error } = await supabase
     .from("products")
     .select("id, name, type, price, description")
-    .gt("price", 0)
     .order("price", { ascending: true });
 
   if (error) {
@@ -53,13 +54,25 @@ export async function getPricedProducts(): Promise<Product[]> {
     return [];
   }
 
-  return (data || []).map((p: any) => ({
+  const normalized = (data || []).map((p: any) => ({
     id: p.id,
     name: p.name,
     type: p.type,
     price: Number(p.price),
     description: p.description ?? null,
   })) as Product[];
+
+  const priced = normalized.filter((p) => Number.isFinite(p.price) && p.price > 0);
+
+  // Debug signal for misconfiguration: pricing exists in DB but filter results empty.
+  if (normalized.length > 0 && priced.length === 0) {
+    console.warn("[getPricedProducts] products exist but none are priced > 0", {
+      total: normalized.length,
+      sample: normalized.slice(0, 3).map((p) => ({ id: p.id, name: p.name, price: p.price })),
+    });
+  }
+
+  return priced;
 }
 
 // Get family by access code
