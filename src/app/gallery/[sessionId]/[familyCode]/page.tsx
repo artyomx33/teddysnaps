@@ -116,11 +116,11 @@ export default function GalleryPage() {
             },
             {
               id: "fallback-album-50",
-              name: "All digital photos + 3 retouch edits",
+              name: "All digital photos (retouched)",
               type: "digital",
               price: 50,
               description:
-                "All photos as digital downloads. Includes 3 premium retouch edits (choose your top 3 favourites; if none, we select).",
+                "All photos as digital downloads. All photos are retouched and beautified.",
             },
           ] as DbProduct[];
         }
@@ -179,11 +179,11 @@ export default function GalleryPage() {
           },
           {
             id: "fallback-album-50",
-            name: "All digital photos + 3 retouch edits",
+            name: "All digital photos (retouched)",
             type: "digital",
             price: 50,
             description:
-              "All photos as digital downloads. Includes 3 premium retouch edits (choose your top 3 favourites; if none, we select).",
+              "All photos as digital downloads. All photos are retouched and beautified.",
           },
         ] as DbProduct[];
       }
@@ -330,7 +330,7 @@ export default function GalleryPage() {
                   {sessionName} at {locationName}
                 </p>
                 <p className="text-xs text-charcoal-500 mt-1">
-                  Tap <Heart className="inline w-3.5 h-3.5 text-red-500 fill-current -mt-0.5" /> to mark your top 3 favourites for retouching.
+                  Tap <Heart className="inline w-3.5 h-3.5 text-red-500 fill-current -mt-0.5" /> to save favourites.
                 </p>
               </div>
             </div>

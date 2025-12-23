@@ -1,4 +1,4 @@
--- Adjust product copy: €50 bundle includes only 3 retouched photos (chosen from favourites).
+-- Adjust product copy: €50 bundle includes all digitals, all retouched/beautified.
 -- Safe to run multiple times.
 
 alter table products
@@ -9,7 +9,11 @@ set description = 'High‑resolution digital download. Includes retouching on th
 where id = '11111111-1111-1111-1111-111111111111';
 
 update products
-set description = 'All photos as digital downloads. Includes 3 premium retouch edits (choose your top 3 favourites; if none, we select).'
+set description = 'All photos as digital downloads. All photos are retouched and beautified.'
+where id = '77777777-7777-7777-7777-777777777777';
+
+update products
+set name = 'All digital photos (retouched)'
 where id = '77777777-7777-7777-7777-777777777777';
 
 

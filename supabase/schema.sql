@@ -333,11 +333,11 @@ insert into products (id, name, type, size, price, description, sort_order) valu
   ),
   (
     '77777777-7777-7777-7777-777777777777',
-    'All digital photos + 3 retouch edits',
+    'All digital photos (retouched)',
     'digital',
     null,
     50.00,
-    'All photos as digital downloads. Includes 3 premium retouch edits (choose your top 3 favourites; if none, we select).',
+    'All photos as digital downloads. All photos are retouched and beautified.',
     2
   ),
   ('22222222-2222-2222-2222-222222222222', '10×15 Print', 'print', '10x15', 4.50, 'Glossy or matte finish', 3),

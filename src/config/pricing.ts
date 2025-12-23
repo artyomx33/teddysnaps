@@ -11,12 +11,12 @@ export const PRODUCTS = [
   },
   {
     id: "77777777-7777-7777-7777-777777777777",
-    name: "All digital photos + 3 retouch edits",
+    name: "All digital photos (retouched)",
     type: "digital" as const,
     size: null,
     price: 50.0,
     description:
-      "All photos as digital downloads. Includes 3 premium retouch edits (choose your top 3 favourites; if none, we select).",
+      "All photos as digital downloads. All photos are retouched and beautified.",
   },
   {
     id: "22222222-2222-2222-2222-222222222222",

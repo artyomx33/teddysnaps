@@ -29,12 +29,19 @@ interface Child {
   reference_photo_url: string | null;
 }
 
+interface HeroPhoto {
+  id: string;
+  thumbnail_url: string | null;
+  original_url: string;
+}
+
 interface Family {
   id: string;
   family_name: string;
   access_code: string;
   email: string;
   hero_photo_id: string | null;
+  hero_photo?: HeroPhoto[];
   children: Child[];
 }
 
@@ -116,6 +123,7 @@ export default function FamilyDetailPage() {
           access_code,
           email,
           hero_photo_id,
+          hero_photo:photos!hero_photo_id (id, thumbnail_url, original_url),
           children (
             id,
             first_name,
@@ -301,7 +309,22 @@ export default function FamilyDetailPage() {
       // Toggle: if already hero, clear it; otherwise set it
       const newHeroId = family.hero_photo_id === photoId ? null : photoId;
       await setFamilyHeroPhoto(family.id, newHeroId);
-      setFamily({ ...family, hero_photo_id: newHeroId });
+
+      // Find the photo from familyPhotos to update hero_photo in state
+      if (newHeroId) {
+        const photo = familyPhotos.find(p => p.photoId === newHeroId);
+        if (photo) {
+          setFamily({
+            ...family,
+            hero_photo_id: newHeroId,
+            hero_photo: [{ id: newHeroId, thumbnail_url: photo.thumbnailUrl, original_url: photo.thumbnailUrl }]
+          });
+        } else {
+          setFamily({ ...family, hero_photo_id: newHeroId });
+        }
+      } else {
+        setFamily({ ...family, hero_photo_id: null, hero_photo: undefined });
+      }
     } catch (e) {
       console.error("Failed to set hero photo:", e);
     } finally {
@@ -356,6 +379,7 @@ export default function FamilyDetailPage() {
           access_code,
           email,
           hero_photo_id,
+          hero_photo:photos!hero_photo_id (id, thumbnail_url, original_url),
           children (
             id,
             first_name,
@@ -459,16 +483,21 @@ export default function FamilyDetailPage() {
             </Card>
           )}
 
-          {/* Children Grid */}
+          {/* Children Grid - show hero photo as main image when available */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {family.children.map((child) => (
+            {family.children.map((child) => {
+              // Use hero photo if available, otherwise fall back to reference photo
+              const heroPhotoUrl = family.hero_photo?.[0]?.thumbnail_url || family.hero_photo?.[0]?.original_url;
+              const displayPhotoUrl = heroPhotoUrl || child.reference_photo_url;
+
+              return (
               <Card key={child.id} variant="glass" className="overflow-hidden">
                 <CardContent className="p-0">
-                  {/* Reference Photo */}
+                  {/* Main Photo - Hero photo or Reference photo */}
                   <div className="aspect-square bg-charcoal-800 relative">
-                    {child.reference_photo_url ? (
+                    {displayPhotoUrl ? (
                       <Image
-                        src={child.reference_photo_url}
+                        src={displayPhotoUrl}
                         alt={child.first_name}
                         fill
                         className="object-cover"
@@ -531,7 +560,8 @@ export default function FamilyDetailPage() {
                   </div>
                 </CardContent>
               </Card>
-            ))}
+              );
+            })}
           </div>
 
           {/* Matched Photos (for verification) */}
