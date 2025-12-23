@@ -1,19 +1,35 @@
 "use client";
 
 import { motion, AnimatePresence } from "framer-motion";
-import { X, CheckCircle, AlertCircle, Loader2, Image } from "lucide-react";
+import { X, CheckCircle, AlertCircle, Loader2, Image, RotateCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUploadStore, type UploadFile } from "@/stores";
-import { Badge } from "@/components/ui";
+import { Badge, Button } from "@/components/ui";
 
-export function UploadQueue() {
-  const { files, removeFile, getProgress, getCompleteCount, getNeedsReviewCount } = useUploadStore();
+interface UploadQueueProps {
+  onRetryFailed?: () => void;
+  onRetryFile?: (fileId: string) => void;
+}
+
+export function UploadQueue({ onRetryFailed, onRetryFile }: UploadQueueProps) {
+  const { files, removeFile, updateFile, getProgress, getCompleteCount, getNeedsReviewCount } = useUploadStore();
 
   if (files.length === 0) return null;
 
   const progress = getProgress();
   const completeCount = getCompleteCount();
   const needsReviewCount = getNeedsReviewCount();
+  const failedCount = files.filter((f) => f.status === "error").length;
+
+  const retryAllFailed = () => {
+    // If a retry handler is passed, let the page manage it.
+    if (onRetryFailed) return onRetryFailed();
+
+    // Fallback: just reset to pending; user can press Start Upload again.
+    files
+      .filter((f) => f.status === "error")
+      .forEach((f) => updateFile(f.id, { status: "pending", progress: 0, error: undefined }));
+  };
 
   return (
     <div className="space-y-4">
@@ -26,8 +42,19 @@ export function UploadQueue() {
           {needsReviewCount > 0 && (
             <Badge variant="warning">{needsReviewCount} need review</Badge>
           )}
+          {failedCount > 0 && (
+            <Badge variant="warning">{failedCount} failed</Badge>
+          )}
         </div>
-        <span className="text-sm text-charcoal-400">{progress}%</span>
+        <div className="flex items-center gap-3">
+          {failedCount > 0 && (
+            <Button variant="outline" size="sm" onClick={retryAllFailed}>
+              <RotateCw className="w-4 h-4 mr-2" />
+              Retry failed ({failedCount})
+            </Button>
+          )}
+          <span className="text-sm text-charcoal-400">{progress}%</span>
+        </div>
       </div>
 
       {/* Progress Bar */}
@@ -44,7 +71,12 @@ export function UploadQueue() {
       <div className="grid grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3 max-h-[400px] overflow-y-auto p-1">
         <AnimatePresence mode="popLayout">
           {files.map((file) => (
-            <UploadFileCard key={file.id} file={file} onRemove={removeFile} />
+            <UploadFileCard
+              key={file.id}
+              file={file}
+              onRemove={removeFile}
+              onRetry={onRetryFile}
+            />
           ))}
         </AnimatePresence>
       </div>
@@ -55,15 +87,22 @@ export function UploadQueue() {
 interface UploadFileCardProps {
   file: UploadFile;
   onRemove: (id: string) => void;
+  onRetry?: (id: string) => void;
 }
 
-function UploadFileCard({ file, onRemove }: UploadFileCardProps) {
+function UploadFileCard({ file, onRemove, onRetry }: UploadFileCardProps) {
+  const { updateFile } = useUploadStore();
   const statusIcons = {
     pending: <Image className="w-4 h-4 text-charcoal-400" />,
     uploading: <Loader2 className="w-4 h-4 text-gold-500 animate-spin" />,
     processing: <Loader2 className="w-4 h-4 text-teal-400 animate-spin" />,
     complete: <CheckCircle className="w-4 h-4 text-green-500" />,
     error: <AlertCircle className="w-4 h-4 text-red-500" />,
+  };
+
+  const handleRetry = () => {
+    if (onRetry) return onRetry(file.id);
+    updateFile(file.id, { status: "pending", progress: 0, error: undefined });
   };
 
   return (
@@ -143,6 +182,17 @@ function UploadFileCard({ file, onRemove }: UploadFileCardProps) {
         >
           <X className="w-3 h-3 text-white" />
         </button>
+
+        {/* Retry button (for failed uploads) */}
+        {file.status === "error" && (
+          <button
+            onClick={handleRetry}
+            className="absolute top-1 left-1 p-1 bg-black/60 rounded-full opacity-100 hover:bg-black/80"
+            title="Retry upload"
+          >
+            <RotateCw className="w-3 h-3 text-white" />
+          </button>
+        )}
 
         {/* Match count badge */}
         {file.matches.length > 0 && (

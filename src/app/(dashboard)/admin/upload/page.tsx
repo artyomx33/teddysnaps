@@ -180,6 +180,27 @@ export default function UploadPage() {
     setProcessing(false);
   }, [sessionId, files, updateFile, setProcessing]);
 
+  const retryFailed = useCallback(() => {
+    if (isUploading) return;
+    const failed = files.filter((f) => f.status === "error");
+    if (failed.length === 0) return;
+    for (const f of failed) {
+      updateFile(f.id, { status: "pending", progress: 0, error: undefined });
+    }
+    // Kick off uploads on next tick so state is updated.
+    setTimeout(() => {
+      startUpload().catch(() => {});
+    }, 0);
+  }, [files, isUploading, startUpload, updateFile]);
+
+  const retryFile = useCallback((fileId: string) => {
+    if (isUploading) return;
+    updateFile(fileId, { status: "pending", progress: 0, error: undefined });
+    setTimeout(() => {
+      startUpload().catch(() => {});
+    }, 0);
+  }, [isUploading, startUpload, updateFile]);
+
   const pollJob = useCallback(async (sid: string) => {
     const current = await getFaceJobForSession(sid);
     if (!current) return;
@@ -365,7 +386,7 @@ export default function UploadPage() {
                 </div>
               </div>
 
-              <UploadQueue />
+              <UploadQueue onRetryFailed={retryFailed} onRetryFile={retryFile} />
             </motion.div>
           )}
 
