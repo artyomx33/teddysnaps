@@ -13,17 +13,19 @@ import {
 } from "lucide-react";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
-import { Dropzone, UploadQueue, SessionForm } from "@/components/upload";
+import { Dropzone } from "@/components/upload/dropzone";
+import { UploadQueue } from "@/components/upload/upload-queue";
+import { SessionForm } from "@/components/upload/session-form";
 import { Button, Card, CardContent, Badge, Input } from "@/components/ui";
 import { useUploadStore } from "@/stores";
 import {
   createPhotoSession,
-  uploadPhoto,
   getLocations,
   createLocation,
   getSessionPhotos,
 } from "@/lib/actions/upload";
 import { enqueueFaceJob, getFaceJobForSession, type FaceJob } from "@/lib/actions/face-jobs";
+import { createClient } from "@/lib/supabase/client";
 
 export default function UploadPage() {
   const [locations, setLocations] = useState<Array<{ id: string; name: string }>>([]);
@@ -97,27 +99,50 @@ export default function UploadPage() {
     setProcessing(true);
 
     const pendingFiles = files.filter((f) => f.status === "pending");
-    const CONCURRENCY_LIMIT = 6; // Upload 6 files at a time
+    const CONCURRENCY_LIMIT = 5; // Upload 5 files at a time
+    const supabase = createClient();
 
     // Upload a single file
     const uploadSingleFile = async (file: typeof pendingFiles[0]) => {
       try {
         updateFile(file.id, { status: "uploading", progress: 0 });
 
-        const formData = new FormData();
-        formData.append("file", file.file);
-
-        // Progress simulation
+        // Progress simulation (we don't have upload progress events here)
+        let simulated = 0;
         const progressInterval = setInterval(() => {
+          simulated = Math.min(simulated + 8, 90);
           updateFile(file.id, {
-            progress: Math.min(
-              (files.find((f) => f.id === file.id)?.progress || 0) + 15,
-              90
-            ),
+            progress: simulated,
           });
         }, 150);
 
-        await uploadPhoto(sessionId, formData);
+        const storagePath = `${sessionId}/${crypto.randomUUID()}-${file.file.name}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from("photos-originals")
+          .upload(storagePath, file.file);
+
+        if (uploadError) {
+          throw uploadError;
+        }
+
+        const { data: publicUrl } = supabase.storage
+          .from("photos-originals")
+          .getPublicUrl(storagePath);
+
+        const originalUrl = publicUrl.publicUrl;
+        const thumbnailUrl = publicUrl.publicUrl;
+
+        const { error: dbError } = await supabase.from("photos").insert({
+          session_id: sessionId,
+          original_url: originalUrl,
+          thumbnail_url: thumbnailUrl,
+          filename: file.file.name,
+        });
+
+        if (dbError) {
+          throw dbError;
+        }
 
         clearInterval(progressInterval);
         updateFile(file.id, { status: "complete", progress: 100 });
