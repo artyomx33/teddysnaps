@@ -124,7 +124,7 @@ export async function createOrder(input: CreateOrderInput) {
   }
 
   // Create Mollie payment
-  const baseUrl = process.env.NEXT_PUBLIC_URL || "http://localhost:3000";
+  const baseUrl = (process.env.NEXT_PUBLIC_URL || "http://localhost:3000").replace(/\/+$/, "");
 
   try {
     const { paymentId, checkoutUrl } = await createPayment({
@@ -372,7 +372,7 @@ export async function createPaymentForOrder(orderId: string) {
     throw new Error("Order is already paid");
   }
 
-  const baseUrl = process.env.NEXT_PUBLIC_URL || "http://localhost:8001";
+  const baseUrl = (process.env.NEXT_PUBLIC_URL || "http://localhost:3000").replace(/\/+$/, "");
 
   try {
     const { paymentId, checkoutUrl } = await createPayment({
