@@ -71,6 +71,11 @@ type FamilyPhoto = {
   totalCount: number;
 };
 
+function firstOf<T>(val: T | T[] | null | undefined): T | null {
+  if (!val) return null;
+  return Array.isArray(val) ? val[0] ?? null : val;
+}
+
 export default function FamilyDetailPage() {
   const params = useParams();
   const familyId = params.familyId as string;
@@ -162,15 +167,9 @@ export default function FamilyDetailPage() {
 
       const byPhoto = new Map<string, FamilyPhoto>();
       for (const r of rows) {
-        const photo =
-          (r as any).photo ??
-          (Array.isArray((r as any).photos) ? (r as any).photos?.[0] : (r as any).photos);
+        const photo = firstOf(r.photo ?? (r as { photos?: FamilyPhotoMatchRow["photo"] | Array<FamilyPhotoMatchRow["photo"]> }).photos);
         if (!photo) continue;
-        const session =
-          (photo as any).session ??
-          (Array.isArray((photo as any).photo_sessions)
-            ? (photo as any).photo_sessions?.[0]
-            : (photo as any).photo_sessions);
+        const session = firstOf(photo.session ?? (photo as { photo_sessions?: FamilyPhotoMatchRow["photo"] extends { session?: infer S } ? S | S[] : unknown }).photo_sessions);
 
         const existing =
           byPhoto.get(r.photo_id) ??
@@ -186,9 +185,7 @@ export default function FamilyDetailPage() {
             totalCount: 0,
           } as FamilyPhoto);
 
-        const child =
-          (r as any).child ??
-          (Array.isArray((r as any).children) ? (r as any).children?.[0] : (r as any).children);
+        const child = firstOf(r.child ?? (r as { children?: FamilyPhotoMatchRow["child"] | Array<FamilyPhotoMatchRow["child"]> }).children);
         if (child) {
           // Dedup child entries
           const already = existing.children.some((c) => c.id === child.id);

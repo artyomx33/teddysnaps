@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, useCallback, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import {
@@ -14,7 +14,7 @@ import {
 import Link from "next/link";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
-import { Card, CardContent, Button, Badge } from "@/components/ui";
+import { Card, Button, Badge } from "@/components/ui";
 import { FaceNaming } from "@/components/faces";
 import { createClient } from "@/lib/supabase/client";
 import { enqueueFaceJob, getFaceJobForSession, type FaceJob } from "@/lib/actions/face-jobs";
@@ -42,18 +42,7 @@ function FacesPageContent() {
   const [jobError, setJobError] = useState<string | null>(null);
   const [isStartingJob, setIsStartingJob] = useState(false);
 
-  useEffect(() => {
-    fetchSessions();
-  }, []);
-
-  useEffect(() => {
-    if (sessionId && sessions.length > 0) {
-      const session = sessions.find((s) => s.id === sessionId);
-      setSelectedSession(session || null);
-    }
-  }, [sessionId, sessions]);
-
-  async function fetchSessions() {
+  const fetchSessions = useCallback(async () => {
     const supabase = createClient();
 
     const { data: sessionsData } = await supabase
@@ -94,12 +83,23 @@ function FacesPageContent() {
 
     setFaceStats(stats);
     setLoading(false);
-  }
+  }, []);
+
+  useEffect(() => {
+    fetchSessions().catch(() => {});
+  }, [fetchSessions]);
+
+  useEffect(() => {
+    if (sessionId && sessions.length > 0) {
+      const session = sessions.find((s) => s.id === sessionId);
+      setSelectedSession(session || null);
+    }
+  }, [sessionId, sessions]);
 
   // When a session is selected, load photo count and last job (and poll while queued/running).
   useEffect(() => {
-    if (!selectedSession) return;
-    const sid = selectedSession.id;
+    const sid = selectedSession?.id;
+    if (!sid) return;
 
     let timer: ReturnType<typeof setInterval> | null = null;
 
@@ -149,7 +149,7 @@ function FacesPageContent() {
     return () => {
       if (timer) clearInterval(timer);
     };
-  }, [selectedSession?.id]);
+  }, [selectedSession?.id, fetchSessions]);
 
   const startOrRerun = async () => {
     if (!selectedSession) return;
@@ -160,7 +160,7 @@ function FacesPageContent() {
     try {
       const enqueued = await enqueueFaceJob(selectedSession.id);
       setJob(enqueued);
-    } catch (e) {
+    } catch {
       setJobError("Failed to start server face processing. Please try again.");
     } finally {
       setIsStartingJob(false);
