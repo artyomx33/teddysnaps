@@ -40,7 +40,7 @@ export async function POST(req: Request) {
 
     const { data: family, error: familyError } = await supabase
       .from("families")
-      .select("id, family_name, location_id")
+      .select("id, family_name, location_id, email, phone")
       .eq("access_code", accessCode)
       .maybeSingle();
 
@@ -88,6 +88,8 @@ export async function POST(req: Request) {
       accessCode,
       familyName: family.family_name,
       locationId: family.location_id,
+      email: family.email ?? null,
+      whatsapp: family.phone ?? null,
       sessions: sessions ?? [],
     });
   } catch (e) {

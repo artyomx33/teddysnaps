@@ -14,6 +14,8 @@ import {
   X,
   AlertCircle,
   Star,
+  Mail,
+  MessageCircle,
 } from "lucide-react";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
@@ -39,7 +41,8 @@ interface Family {
   id: string;
   family_name: string;
   access_code: string;
-  email: string;
+  email: string | null;
+  phone: string | null;
   hero_photo_id: string | null;
   hero_photo?: HeroPhoto[];
   children: Child[];
@@ -122,6 +125,7 @@ export default function FamilyDetailPage() {
           family_name,
           access_code,
           email,
+          phone,
           hero_photo_id,
           hero_photo:photos!hero_photo_id (id, thumbnail_url, original_url),
           children (
@@ -378,6 +382,7 @@ export default function FamilyDetailPage() {
           family_name,
           access_code,
           email,
+          phone,
           hero_photo_id,
           hero_photo:photos!hero_photo_id (id, thumbnail_url, original_url),
           children (
@@ -456,7 +461,7 @@ export default function FamilyDetailPage() {
           </Link>
 
           {/* Stats */}
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-6 flex-wrap">
             <div className="flex items-center gap-2 text-charcoal-300">
               <User className="w-4 h-4" />
               <span>{family.children.length} children</span>
@@ -465,6 +470,18 @@ export default function FamilyDetailPage() {
               <Camera className="w-4 h-4" />
               <span>{withReferencePhotoCount} with reference photos</span>
             </div>
+            {family.email && (
+              <div className="flex items-center gap-2 text-charcoal-300">
+                <Mail className="w-4 h-4" />
+                <span className="text-sm">{family.email}</span>
+              </div>
+            )}
+            {family.phone && (
+              <div className="flex items-center gap-2 text-charcoal-300">
+                <MessageCircle className="w-4 h-4" />
+                <span className="text-sm">{family.phone}</span>
+              </div>
+            )}
           </div>
 
           {/* Error message */}

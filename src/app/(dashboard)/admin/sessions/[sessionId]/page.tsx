@@ -37,7 +37,7 @@ interface Photo {
   filename: string;
   created_at: string;
   likeCount?: number;
-  likedBy?: Array<{ id: string; family_name: string }>;
+  likedBy?: Array<{ id: string; family_name: string; email?: string | null; phone?: string | null }>;
   matches: Array<{
     child_id: string;
     is_confirmed: boolean;
@@ -129,12 +129,15 @@ export default function SessionDetailPage() {
 
     // Hydrate favourites (hearts) so photographers can see what parents liked.
     const photoIds = basePhotos.map((p) => p.id);
-    let likesByPhoto = new Map<string, { count: number; families: Array<{ id: string; family_name: string }> }>();
+    let likesByPhoto = new Map<
+      string,
+      { count: number; families: Array<{ id: string; family_name: string; email?: string | null; phone?: string | null }> }
+    >();
 
     if (photoIds.length > 0) {
       const { data: likesData } = await supabase
         .from("photo_likes")
-        .select("photo_id, family:families(id, family_name)")
+        .select("photo_id, family:families(id, family_name, email, phone)")
         .in("photo_id", photoIds);
 
       for (const row of (likesData || []) as any[]) {
@@ -142,12 +145,19 @@ export default function SessionDetailPage() {
         const family = Array.isArray(row.family) ? row.family?.[0] : row.family;
         const familyId = family?.id as string | undefined;
         const familyName = family?.family_name as string | undefined;
+        const familyEmail = (family?.email as string | null | undefined) ?? null;
+        const familyPhone = (family?.phone as string | null | undefined) ?? null;
         if (!photoId || !familyId || !familyName) continue;
 
         const prev = likesByPhoto.get(photoId) ?? { count: 0, families: [] };
         // de-dupe by family id
         if (!prev.families.some((f) => f.id === familyId)) {
-          prev.families.push({ id: familyId, family_name: familyName });
+          prev.families.push({
+            id: familyId,
+            family_name: familyName,
+            email: familyEmail,
+            phone: familyPhone,
+          });
           prev.count += 1;
         }
         likesByPhoto.set(photoId, prev);
@@ -637,7 +647,15 @@ export default function SessionDetailPage() {
                         <div className="space-y-1">
                           {(selectedPhoto.likedBy || []).map((f) => (
                             <div key={f.id} className="text-sm text-charcoal-300">
-                              {f.family_name}
+                              <div className="text-charcoal-200">{f.family_name}</div>
+                              {f.phone && (
+                                <div className="text-xs text-charcoal-400">
+                                  WhatsApp: {f.phone}
+                                </div>
+                              )}
+                              {f.email && (
+                                <div className="text-xs text-charcoal-500">{f.email}</div>
+                              )}
                             </div>
                           ))}
                         </div>
