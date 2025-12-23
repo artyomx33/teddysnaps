@@ -117,6 +117,23 @@ export default function UploadPage() {
 
     const dbQueue: DbBatchItem[] = [];
     let flushing = false;
+    let flushTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const scheduleFlush = () => {
+      if (flushing) return;
+      if (dbQueue.length >= DB_BATCH_SIZE) {
+        // Flush immediately when we have a full batch.
+        void flushDbQueue();
+        return;
+      }
+      // Otherwise debounce (coalesce many uploads into fewer inserts).
+      if (flushTimer) return;
+      flushTimer = setTimeout(() => {
+        flushTimer = null;
+        void flushDbQueue();
+      }, 1000);
+    };
+
     const flushDbQueue = async () => {
       if (flushing) return;
       if (dbQueue.length === 0) return;
@@ -132,7 +149,9 @@ export default function UploadPage() {
             setTimeout(() => reject(new Error("DB insert timed out")), DB_TIMEOUT_MS)
           );
 
-          const { error: dbError } = await Promise.race([insertPromise, timeoutPromise]);
+          const result = await Promise.race([insertPromise, timeoutPromise]);
+          // supabase-js returns { data, error }, but result could be a thrown timeout
+          const dbError = (result as any)?.error as unknown;
           if (dbError) throw dbError;
 
           // Mark files complete
@@ -144,12 +163,10 @@ export default function UploadPage() {
         // If the batch insert fails, mark those files as error so user can retry.
         const message = error instanceof Error ? error.message : "DB insert failed";
         console.error("DB batch insert failed:", error);
-        // Put all currently pending items (including those already spliced out) into error.
-        // Note: if this fails, user can retry and the deterministic storage path will upsert.
-        for (const b of dbQueue) {
+        // Mark everything still queued as failed so the retry UX can recover.
+        for (const b of dbQueue.splice(0, dbQueue.length)) {
           updateFile(b.fileId, { status: "error", error: message });
         }
-        dbQueue.length = 0;
       } finally {
         flushing = false;
       }
@@ -214,8 +231,8 @@ export default function UploadPage() {
           },
         });
 
-        // Best-effort flush (won't re-enter if already flushing)
-        await flushDbQueue();
+        // Flush in the background so upload concurrency isn't blocked by DB latency.
+        scheduleFlush();
       } catch (error) {
         console.error("Upload failed:", error);
         const message =
@@ -253,6 +270,10 @@ export default function UploadPage() {
 
     // Flush any remaining DB inserts after all uploads finished.
     await flushDbQueue();
+    if (flushTimer) {
+      clearTimeout(flushTimer);
+      flushTimer = null;
+    }
 
     setIsUploading(false);
     setProcessing(false);
