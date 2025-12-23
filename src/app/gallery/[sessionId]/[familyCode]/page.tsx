@@ -384,15 +384,6 @@ export default function GalleryPage() {
                   className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                 />
 
-                {/* Added feedback */}
-                {justAddedId === photo.id && (
-                  <div className="pointer-events-none absolute inset-0 bg-black/50 flex items-center justify-center">
-                    <div className="px-4 py-2 rounded-full bg-gold-500 text-charcoal-950 font-medium">
-                      Added
-                    </div>
-                  </div>
-                )}
-
                 {/* Loading feedback (first tap may need to fetch products) */}
                 {isLoadingProducts && !perPhotoProduct && (
                   <div className="pointer-events-none absolute inset-0 bg-black/40 flex items-center justify-center">
