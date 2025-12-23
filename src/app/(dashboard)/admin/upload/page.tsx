@@ -18,12 +18,6 @@ import { UploadQueue } from "@/components/upload/upload-queue";
 import { SessionForm } from "@/components/upload/session-form";
 import { Button, Card, CardContent, Badge, Input } from "@/components/ui";
 import { useUploadStore } from "@/stores";
-import {
-  createPhotoSession,
-  getLocations,
-  createLocation,
-  getSessionPhotos,
-} from "@/lib/actions/upload";
 import { enqueueFaceJob, getFaceJobForSession, type FaceJob } from "@/lib/actions/face-jobs";
 import { createClient } from "@/lib/supabase/client";
 
@@ -51,8 +45,19 @@ export default function UploadPage() {
   // Fetch locations on mount
   useEffect(() => {
     async function fetchLocations() {
-      const locs = await getLocations();
-      setLocations(locs);
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("locations")
+        .select("id, name")
+        .order("name");
+
+      if (error) {
+        console.error("Failed to fetch locations:", error);
+        setLocations([]);
+        return;
+      }
+
+      setLocations(data || []);
     }
     fetchLocations();
   }, []);
@@ -66,8 +71,16 @@ export default function UploadPage() {
       .replace(/[^a-z0-9-]/g, "");
 
     try {
-      const newLoc = await createLocation(newLocationName, slug);
-      setLocations((prev) => [...prev, newLoc]);
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("locations")
+        .insert({ name: newLocationName, slug })
+        .select("id, name")
+        .single();
+
+      if (error || !data) throw error;
+
+      setLocations((prev) => [...prev, data]);
       setNewLocationName("");
       setShowAddLocation(false);
     } catch (error) {
@@ -81,11 +94,20 @@ export default function UploadPage() {
     locationId: string;
   }) => {
     try {
-      const session = await createPhotoSession({
-        name: data.name,
-        shootDate: data.date,
-        locationId: data.locationId,
-      });
+      const supabase = createClient();
+      const { data: session, error } = await supabase
+        .from("photo_sessions")
+        .insert({
+          name: data.name,
+          shoot_date: data.date,
+          location_id: data.locationId,
+          status: "processing",
+        })
+        .select("id")
+        .single();
+
+      if (error || !session) throw error;
+
       setSessionId(session.id);
     } catch (error) {
       console.error("Failed to create session:", error);
@@ -338,8 +360,15 @@ export default function UploadPage() {
 
     try {
       // Ensure there are photos, then enqueue server worker job
-      const photos = await getSessionPhotos(sessionId);
-      if (photos.length === 0) {
+      const supabase = createClient();
+      const { count, error } = await supabase
+        .from("photos")
+        .select("*", { count: "exact", head: true })
+        .eq("session_id", sessionId);
+
+      if (error) throw error;
+
+      if (!count || count === 0) {
         console.log("No photos to process");
         setIsProcessingAI(false);
         return;
