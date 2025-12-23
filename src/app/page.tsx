@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Camera, Users, ShoppingBag } from "lucide-react";
+import { KeyRound } from "lucide-react";
 import { Button, Card, CardContent } from "@/components/ui";
 
 export default function LandingPage() {
@@ -53,26 +53,13 @@ export default function LandingPage() {
               className="group"
               onClick={() => (window.location.href = "/gallery")}
             >
-              <Users className="w-5 h-5 mr-2" />
-              Parent Access
-            </Button>
-            <Button
-              size="lg"
-              variant="outline"
-              onClick={() => (window.location.href = "/teacher")}
-            >
-              <ShoppingBag className="w-5 h-5 mr-2" />
-              Teacher Login
-            </Button>
-            <Button
-              size="lg"
-              variant="ghost"
-              onClick={() => (window.location.href = "/admin")}
-            >
-              <Camera className="w-5 h-5 mr-2" />
-              Photographer
+              <KeyRound className="w-5 h-5 mr-2" />
+              Login with code
             </Button>
           </div>
+          <p className="mt-4 text-sm text-charcoal-500">
+            Use the access code from your email to open your gallery.
+          </p>
         </motion.div>
 
         {/* Scroll indicator */}
