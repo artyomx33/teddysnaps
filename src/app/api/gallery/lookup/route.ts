@@ -1,10 +1,31 @@
 import { NextResponse } from "next/server";
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { createClient as createSupabaseJsClient } from "@supabase/supabase-js";
 
 type LookupRequest = {
   accessCode?: string;
 };
+
+function createSupabaseClientForGallery() {
+  // Prefer service role (bypasses RLS + avoids auth/session coupling), but fall back to anon
+  // so production doesn't hard-fail if SUPABASE_SERVICE_ROLE_KEY isn't configured yet.
+  try {
+    return createAdminClient();
+  } catch (e) {
+    console.error("[gallery/lookup] Admin client unavailable, falling back to anon client:", e);
+  }
+
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !anonKey) {
+    throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY");
+  }
+
+  return createSupabaseJsClient(url, anonKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
 
 export async function POST(req: Request) {
   let body: LookupRequest | null = null;
@@ -23,7 +44,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    const supabase = createAdminClient();
+    const supabase = createSupabaseClientForGallery();
 
     const { data: family, error: familyError } = await supabase
       .from("families")
@@ -80,7 +101,11 @@ export async function POST(req: Request) {
   } catch (e) {
     console.error("[gallery/lookup] Unhandled error:", e);
     return NextResponse.json(
-      { ok: false, message: "Unexpected server error" },
+      {
+        ok: false,
+        // Keep message generic for production, but this should avoid hard failing on missing service role.
+        message: "Unexpected server error",
+      },
       { status: 500 }
     );
   }
