@@ -14,7 +14,11 @@ import {
   Check,
   X,
   ChevronRight,
+  GitMerge,
+  ArrowLeftRight,
+  AlertTriangle,
 } from "lucide-react";
+import { AnimatePresence } from "framer-motion";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
 import { Card, CardContent, Badge, Button, Input } from "@/components/ui";
@@ -31,6 +35,7 @@ interface Family {
   email: string | null;
   phone: string | null;
   access_code: string;
+  location_id: string;
   children: Child[];
   location: {
     name: string;
@@ -45,6 +50,13 @@ export default function FamiliesPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [showAddForm, setShowAddForm] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // Merge mode state
+  const [isMergeMode, setIsMergeMode] = useState(false);
+  const [selectedFamilies, setSelectedFamilies] = useState<string[]>([]);
+  const [showMergeModal, setShowMergeModal] = useState(false);
+  const [merging, setMerging] = useState(false);
+  const [mergeError, setMergeError] = useState<string | null>(null);
 
   // Form state
   const [newFamily, setNewFamily] = useState({
@@ -71,6 +83,7 @@ export default function FamiliesPage() {
           email,
           phone,
           access_code,
+          location_id,
           children (id, first_name),
           location:locations (name)
         `)
@@ -183,6 +196,101 @@ export default function FamiliesPage() {
     }));
   };
 
+  // Merge mode handlers
+  const handleFamilySelect = (familyId: string) => {
+    if (!isMergeMode) return;
+
+    setSelectedFamilies((prev) => {
+      if (prev.includes(familyId)) {
+        return prev.filter((id) => id !== familyId);
+      }
+      if (prev.length >= 2) {
+        return prev; // Max 2 families
+      }
+      return [...prev, familyId];
+    });
+  };
+
+  const exitMergeMode = () => {
+    setIsMergeMode(false);
+    setSelectedFamilies([]);
+    setShowMergeModal(false);
+    setMergeError(null);
+  };
+
+  const swapFamilies = () => {
+    setSelectedFamilies((prev) => [prev[1], prev[0]]);
+  };
+
+  const handleMerge = async () => {
+    if (selectedFamilies.length !== 2) return;
+
+    const [sourceFamilyId, destinationFamilyId] = selectedFamilies;
+    const supabase = createClient();
+
+    setMerging(true);
+    setMergeError(null);
+
+    try {
+      // Step 1: Move all children from source to destination
+      const { error: childrenError } = await supabase
+        .from("children")
+        .update({ family_id: destinationFamilyId })
+        .eq("family_id", sourceFamilyId);
+
+      if (childrenError) {
+        throw new Error(`Failed to move children: ${childrenError.message}`);
+      }
+
+      // Step 2: Move all orders from source to destination
+      const { error: ordersError } = await supabase
+        .from("orders")
+        .update({ family_id: destinationFamilyId })
+        .eq("family_id", sourceFamilyId);
+
+      if (ordersError) {
+        // Rollback: Move children back
+        await supabase
+          .from("children")
+          .update({ family_id: sourceFamilyId })
+          .eq("family_id", destinationFamilyId);
+        throw new Error(`Failed to move orders: ${ordersError.message}`);
+      }
+
+      // Step 3: Delete the source family (now empty)
+      const { error: deleteError } = await supabase
+        .from("families")
+        .delete()
+        .eq("id", sourceFamilyId);
+
+      if (deleteError) {
+        // Rollback: Move everything back
+        await supabase
+          .from("children")
+          .update({ family_id: sourceFamilyId })
+          .eq("family_id", destinationFamilyId);
+        await supabase
+          .from("orders")
+          .update({ family_id: sourceFamilyId })
+          .eq("family_id", destinationFamilyId);
+        throw new Error(`Failed to delete source family: ${deleteError.message}`);
+      }
+
+      // Success - refresh and exit merge mode
+      exitMergeMode();
+      fetchData();
+    } catch (error) {
+      setMergeError(error instanceof Error ? error.message : "Merge failed");
+    } finally {
+      setMerging(false);
+    }
+  };
+
+  // Get family objects for merge preview
+  const sourceFamily = selectedFamilies[0] ? families.find((f) => f.id === selectedFamilies[0]) : null;
+  const destinationFamily = selectedFamilies[1] ? families.find((f) => f.id === selectedFamilies[1]) : null;
+  const locationMismatch = sourceFamily && destinationFamily && sourceFamily.location_id !== destinationFamily.location_id;
+
   const filteredFamilies = families.filter(
     (family) =>
       family.family_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -221,14 +329,62 @@ export default function FamiliesPage() {
                 className="pl-12 bg-charcoal-900 border-charcoal-700"
               />
             </div>
-            <Button
-              variant="primary"
-              onClick={() => setShowAddForm(!showAddForm)}
-            >
-              <Plus className="w-4 h-4 mr-2" />
-              Add Family
-            </Button>
+
+            <div className="flex items-center gap-2">
+              {isMergeMode ? (
+                <>
+                  <span className="text-sm text-charcoal-400">
+                    {selectedFamilies.length}/2 selected
+                  </span>
+                  <Button variant="ghost" onClick={exitMergeMode}>
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="primary"
+                    onClick={() => setShowMergeModal(true)}
+                    disabled={selectedFamilies.length !== 2}
+                  >
+                    <GitMerge className="w-4 h-4 mr-2" />
+                    Preview Merge
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button
+                    variant="outline"
+                    onClick={() => setIsMergeMode(true)}
+                  >
+                    <GitMerge className="w-4 h-4 mr-2" />
+                    Merge Families
+                  </Button>
+                  <Button
+                    variant="primary"
+                    onClick={() => setShowAddForm(!showAddForm)}
+                  >
+                    <Plus className="w-4 h-4 mr-2" />
+                    Add Family
+                  </Button>
+                </>
+              )}
+            </div>
           </div>
+
+          {/* Merge Mode Instructions */}
+          {isMergeMode && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+            >
+              <Card variant="glass" className="p-4 border-gold-500/30">
+                <div className="flex items-center gap-3">
+                  <GitMerge className="w-5 h-5 text-gold-500" />
+                  <p className="text-charcoal-300">
+                    <span className="text-gold-500 font-medium">Merge Mode:</span> Select 2 families to merge. The first family selected will be merged INTO the second.
+                  </p>
+                </div>
+              </Card>
+            </motion.div>
+          )}
 
           {/* Add Family Form */}
           {showAddForm && (
@@ -369,10 +525,36 @@ export default function FamiliesPage() {
                   transition={{ delay: index * 0.03 }}
                 >
                   <Card
-                    variant="default"
-                    className="p-4 hover:bg-charcoal-800/50 transition-colors cursor-pointer"
-                    onClick={() => router.push(`/admin/families/${family.id}`)}
+                    variant={selectedFamilies.includes(family.id) ? "glow" : "default"}
+                    className={`p-4 transition-colors cursor-pointer relative ${
+                      isMergeMode
+                        ? selectedFamilies.includes(family.id)
+                          ? "ring-2 ring-gold-500"
+                          : "hover:ring-2 hover:ring-gold-500/50"
+                        : "hover:bg-charcoal-800/50"
+                    }`}
+                    onClick={() => {
+                      if (isMergeMode) {
+                        handleFamilySelect(family.id);
+                      } else {
+                        router.push(`/admin/families/${family.id}`);
+                      }
+                    }}
                   >
+                    {/* Selection indicator in merge mode */}
+                    {isMergeMode && (
+                      <div className="absolute top-3 right-3">
+                        {selectedFamilies.includes(family.id) ? (
+                          <div className="w-6 h-6 rounded-full bg-gold-500 flex items-center justify-center">
+                            <span className="text-charcoal-950 text-xs font-bold">
+                              {selectedFamilies.indexOf(family.id) + 1}
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="w-6 h-6 rounded-full border-2 border-charcoal-600" />
+                        )}
+                      </div>
+                    )}
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-4">
                         <div className="w-12 h-12 rounded-full bg-gradient-to-br from-teal-400 to-teal-600 flex items-center justify-center text-white font-serif text-lg">
@@ -433,6 +615,169 @@ export default function FamiliesPage() {
             )}
           </div>
         </div>
+
+        {/* Merge Preview Modal */}
+        <AnimatePresence>
+          {showMergeModal && sourceFamily && destinationFamily && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+              onClick={() => !merging && setShowMergeModal(false)}
+            >
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                className="bg-charcoal-900 rounded-xl border border-charcoal-800 p-6 max-w-2xl w-full"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* Header */}
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-xl font-serif text-white">Merge Preview</h2>
+                  <button
+                    onClick={() => !merging && setShowMergeModal(false)}
+                    className="text-charcoal-400 hover:text-white"
+                    disabled={merging}
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {/* Warning */}
+                <Card variant="glass" className="border-amber-500/30 bg-amber-500/10 p-4 mb-6">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-amber-400 font-medium">This action cannot be undone</p>
+                      <p className="text-sm text-charcoal-400 mt-1">
+                        The source family will be permanently deleted after merge.
+                        {locationMismatch && (
+                          <span className="block text-amber-400 mt-1">
+                            Warning: These families are in different locations.
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                </Card>
+
+                {/* Side by side comparison */}
+                <div className="grid grid-cols-2 gap-4 mb-6">
+                  {/* Source column */}
+                  <Card variant="default" className="p-4 border-red-500/30">
+                    <div className="flex items-center gap-2 mb-4">
+                      <div className="w-6 h-6 rounded-full bg-red-500/20 flex items-center justify-center">
+                        <span className="text-red-400 text-xs font-bold">1</span>
+                      </div>
+                      <h3 className="font-medium text-red-400">Source (will be deleted)</h3>
+                    </div>
+                    <div className="space-y-3">
+                      <div>
+                        <p className="text-white font-medium">{sourceFamily.family_name}</p>
+                        <p className="text-sm text-charcoal-500 font-mono">{sourceFamily.access_code}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-charcoal-500 uppercase mb-1">Children to move</p>
+                        <p className="text-charcoal-300">
+                          {sourceFamily.children?.length || 0} children
+                          {sourceFamily.children?.length > 0 && (
+                            <span className="text-charcoal-500 ml-1">
+                              ({sourceFamily.children.map((c) => c.first_name).join(", ")})
+                            </span>
+                          )}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-charcoal-500 uppercase mb-1">Location</p>
+                        <p className="text-charcoal-300">{sourceFamily.location?.[0]?.name || "Unknown"}</p>
+                      </div>
+                    </div>
+                  </Card>
+
+                  {/* Destination column */}
+                  <Card variant="default" className="p-4 border-teal-500/30">
+                    <div className="flex items-center gap-2 mb-4">
+                      <div className="w-6 h-6 rounded-full bg-teal-500/20 flex items-center justify-center">
+                        <span className="text-teal-400 text-xs font-bold">2</span>
+                      </div>
+                      <h3 className="font-medium text-teal-400">Destination (keeps code)</h3>
+                    </div>
+                    <div className="space-y-3">
+                      <div>
+                        <p className="text-white font-medium">{destinationFamily.family_name}</p>
+                        <p className="text-sm text-teal-400 font-mono">{destinationFamily.access_code}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-charcoal-500 uppercase mb-1">Existing children</p>
+                        <p className="text-charcoal-300">
+                          {destinationFamily.children?.length || 0} children
+                          {destinationFamily.children?.length > 0 && (
+                            <span className="text-charcoal-500 ml-1">
+                              ({destinationFamily.children.map((c) => c.first_name).join(", ")})
+                            </span>
+                          )}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-charcoal-500 uppercase mb-1">Location</p>
+                        <p className="text-charcoal-300">{destinationFamily.location?.[0]?.name || "Unknown"}</p>
+                      </div>
+                    </div>
+                  </Card>
+                </div>
+
+                {/* Swap button */}
+                <div className="flex justify-center mb-6">
+                  <Button variant="outline" onClick={swapFamilies} disabled={merging}>
+                    <ArrowLeftRight className="w-4 h-4 mr-2" />
+                    Swap Source & Destination
+                  </Button>
+                </div>
+
+                {/* Error message */}
+                {mergeError && (
+                  <Card variant="glass" className="border-red-500/30 bg-red-500/10 p-4 mb-6">
+                    <div className="flex items-center gap-3">
+                      <AlertTriangle className="w-5 h-5 text-red-400" />
+                      <p className="text-red-400">{mergeError}</p>
+                    </div>
+                  </Card>
+                )}
+
+                {/* Actions */}
+                <div className="flex justify-end gap-3 pt-4 border-t border-charcoal-700">
+                  <Button
+                    variant="ghost"
+                    onClick={() => setShowMergeModal(false)}
+                    disabled={merging}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="primary"
+                    onClick={handleMerge}
+                    disabled={merging}
+                    className="bg-red-500 hover:bg-red-400"
+                  >
+                    {merging ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Merging...
+                      </>
+                    ) : (
+                      <>
+                        <GitMerge className="w-4 h-4 mr-2" />
+                        Confirm Merge
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </main>
     </div>
   );

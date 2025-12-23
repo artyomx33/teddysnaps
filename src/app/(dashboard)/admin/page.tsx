@@ -34,7 +34,7 @@ interface Order {
   status: string;
   created_at: string;
   family: Array<{ family_name: string }> | null;
-  order_items: Array<{ quantity: number; product_name: string }>;
+  order_items: Array<{ quantity: number; product_id: string }>;
 }
 
 interface Session {
@@ -98,7 +98,7 @@ export default function AdminDashboard() {
           status,
           created_at,
           family:families (family_name),
-          order_items (quantity, product_name)
+          order_items (quantity, product_id)
         `)
         .order("created_at", { ascending: false })
         .limit(5),
@@ -328,7 +328,7 @@ export default function AdminDashboard() {
                           </p>
                           <p className="text-sm text-charcoal-400">
                             {order.order_items
-                              ?.map((i) => `${i.quantity}x ${i.product_name}`)
+                              ?.map((i) => `${i.quantity} item(s)`)
                               .join(", ") || "No items"}
                           </p>
                         </div>

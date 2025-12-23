@@ -537,6 +537,34 @@ export async function nameCluster(
     throw new Error("Failed to link photos to child");
   }
 
+  // 4. IMPORTANT: Update child's face descriptor if they don't have one
+  // This enables AI matching in future sessions
+  const { data: child } = await supabase
+    .from("children")
+    .select("face_descriptor")
+    .eq("id", childId)
+    .single();
+
+  if (!child?.face_descriptor && faces[0]?.face_descriptor) {
+    console.log(`[nameCluster] Updating child ${childId} with face descriptor`);
+
+    // Get crop URL for reference photo
+    const { data: faceWithCrop } = await supabase
+      .from("discovered_faces")
+      .select("crop_url")
+      .eq("id", faces[0].id)
+      .single();
+
+    await supabase
+      .from("children")
+      .update({
+        face_descriptor: faces[0].face_descriptor,
+        reference_photo_url: faceWithCrop?.crop_url,
+        is_enrolled: true,
+      })
+      .eq("id", childId);
+  }
+
   revalidatePath("/admin/faces");
   revalidatePath("/admin/sessions");
   revalidatePath("/gallery"); // Parent gallery needs refresh!

@@ -15,6 +15,8 @@ import {
   Grid,
   List,
   Scan,
+  X,
+  Check,
 } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -25,6 +27,7 @@ import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { imagePresets } from "@/lib/image-transform";
 import { FaceDiscovery } from "@/components/faces";
+import { confirmMatch, removeMatch } from "@/lib/actions/faces";
 
 interface Photo {
   id: string;
@@ -33,12 +36,14 @@ interface Photo {
   filename: string;
   created_at: string;
   matches: Array<{
-    child: Array<{
+    child_id: string;
+    is_confirmed: boolean;
+    child: {
       first_name: string;
-      family: Array<{
+      family: {
         family_name: string;
-      }>;
-    }>;
+      } | null;
+    } | null;
     confidence: number;
   }>;
 }
@@ -64,6 +69,14 @@ export default function SessionDetailPage() {
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
   const [showDiscovery, setShowDiscovery] = useState(false);
+  const [approvingMatch, setApprovingMatch] = useState<string | null>(null);
+  const [approvingAll, setApprovingAll] = useState(false);
+
+  // Calculate unconfirmed matches count
+  const unconfirmedMatches = photos.flatMap((p) =>
+    p.matches?.filter((m) => !m.is_confirmed) || []
+  );
+  const unconfirmedCount = unconfirmedMatches.length;
 
   useEffect(() => {
     fetchData();
@@ -96,6 +109,8 @@ export default function SessionDetailPage() {
         filename,
         created_at,
         matches:photo_children (
+          child_id,
+          is_confirmed,
           confidence,
           child:children (
             first_name,
@@ -107,9 +122,113 @@ export default function SessionDetailPage() {
       .order("created_at", { ascending: true });
 
     setSession(sessionData);
-    setPhotos(photosData || []);
+    setPhotos((photosData || []) as unknown as Photo[]);
     setLoading(false);
   }
+
+  const handleApproveMatch = async (photoId: string, childId: string) => {
+    const matchKey = `${photoId}-${childId}`;
+    setApprovingMatch(matchKey);
+    try {
+      await confirmMatch(photoId, childId);
+      // Update local state
+      setPhotos((prev) =>
+        prev.map((p) =>
+          p.id === photoId
+            ? {
+                ...p,
+                matches: p.matches.map((m) =>
+                  m.child_id === childId ? { ...m, is_confirmed: true } : m
+                ),
+              }
+            : p
+        )
+      );
+      // Update selected photo if it's the one being modified
+      if (selectedPhoto?.id === photoId) {
+        setSelectedPhoto((prev) =>
+          prev
+            ? {
+                ...prev,
+                matches: prev.matches.map((m) =>
+                  m.child_id === childId ? { ...m, is_confirmed: true } : m
+                ),
+              }
+            : null
+        );
+      }
+    } catch (error) {
+      console.error("Failed to approve match:", error);
+    } finally {
+      setApprovingMatch(null);
+    }
+  };
+
+  const handleRejectMatch = async (photoId: string, childId: string) => {
+    const matchKey = `${photoId}-${childId}`;
+    setApprovingMatch(matchKey);
+    try {
+      await removeMatch(photoId, childId);
+      // Update local state
+      setPhotos((prev) =>
+        prev.map((p) =>
+          p.id === photoId
+            ? {
+                ...p,
+                matches: p.matches.filter((m) => m.child_id !== childId),
+              }
+            : p
+        )
+      );
+      // Update selected photo if it's the one being modified
+      if (selectedPhoto?.id === photoId) {
+        setSelectedPhoto((prev) =>
+          prev
+            ? {
+                ...prev,
+                matches: prev.matches.filter((m) => m.child_id !== childId),
+              }
+            : null
+        );
+      }
+    } catch (error) {
+      console.error("Failed to reject match:", error);
+    } finally {
+      setApprovingMatch(null);
+    }
+  };
+
+  const handleApproveAll = async () => {
+    setApprovingAll(true);
+    try {
+      // Get all unconfirmed matches
+      const toApprove: Array<{ photoId: string; childId: string }> = [];
+      photos.forEach((photo) => {
+        photo.matches?.forEach((match) => {
+          if (!match.is_confirmed) {
+            toApprove.push({ photoId: photo.id, childId: match.child_id });
+          }
+        });
+      });
+
+      // Approve all
+      await Promise.all(
+        toApprove.map(({ photoId, childId }) => confirmMatch(photoId, childId))
+      );
+
+      // Update local state
+      setPhotos((prev) =>
+        prev.map((p) => ({
+          ...p,
+          matches: p.matches.map((m) => ({ ...m, is_confirmed: true })),
+        }))
+      );
+    } catch (error) {
+      console.error("Failed to approve all matches:", error);
+    } finally {
+      setApprovingAll(false);
+    }
+  };
 
   const handleDeletePhoto = async (photoId: string) => {
     if (!confirm("Delete this photo?")) return;
@@ -225,6 +344,23 @@ export default function SessionDetailPage() {
                 </button>
               </div>
 
+              {/* Accept All button - only show if there are unconfirmed matches */}
+              {unconfirmedCount > 0 && (
+                <Button
+                  variant="primary"
+                  onClick={handleApproveAll}
+                  disabled={approvingAll}
+                  className="bg-green-600 hover:bg-green-700"
+                >
+                  {approvingAll ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <CheckCircle className="w-4 h-4 mr-2" />
+                  )}
+                  Accept All ({unconfirmedCount})
+                </Button>
+              )}
+
               <Button
                 variant="secondary"
                 onClick={() => setShowDiscovery(!showDiscovery)}
@@ -308,30 +444,91 @@ export default function SessionDetailPage() {
                         />
                       </div>
 
-                      {/* Match indicators */}
-                      {photo.matches && photo.matches.length > 0 && (
-                        <div className="absolute top-2 left-2">
-                          <Badge variant="success" className="text-xs">
-                            <Users className="w-3 h-3 mr-1" />
-                            {photo.matches.length}
-                          </Badge>
+                      {/* Unconfirmed matches overlay */}
+                      {photo.matches?.some((m) => !m.is_confirmed) && (
+                        <div className="absolute inset-0 bg-black/40 flex flex-col justify-between p-2">
+                          {/* Match buttons at top */}
+                          <div className="flex flex-wrap gap-1">
+                            {photo.matches
+                              .filter((m) => !m.is_confirmed)
+                              .map((match) => (
+                                <div
+                                  key={match.child_id}
+                                  className="flex items-center gap-0.5 bg-gold-500 text-black rounded-full text-xs font-medium"
+                                >
+                                  <button
+                                    className="pl-2 py-1 hover:bg-gold-400 rounded-l-full transition-colors"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleApproveMatch(photo.id, match.child_id);
+                                    }}
+                                    disabled={approvingMatch === `${photo.id}-${match.child_id}`}
+                                    title="Approve match"
+                                  >
+                                    {approvingMatch === `${photo.id}-${match.child_id}` ? (
+                                      <Loader2 className="w-3 h-3 animate-spin" />
+                                    ) : (
+                                      match.child?.first_name || "Unknown"
+                                    )}
+                                  </button>
+                                  <button
+                                    className="px-1 py-1 hover:bg-red-500 hover:text-white rounded-r-full transition-colors"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleRejectMatch(photo.id, match.child_id);
+                                    }}
+                                    disabled={approvingMatch === `${photo.id}-${match.child_id}`}
+                                    title="Remove match"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              ))}
+                          </div>
+                          {/* Delete button at bottom (only on hover) */}
+                          <div className="opacity-0 group-hover:opacity-100 transition-opacity flex justify-center">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-red-400 bg-black/50"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeletePhoto(photo.id);
+                              }}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
                         </div>
                       )}
 
-                      {/* Hover overlay */}
-                      <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-red-400"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeletePhoto(photo.id);
-                          }}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </div>
+                      {/* Confirmed matches indicator (small badge) */}
+                      {photo.matches?.length > 0 &&
+                        photo.matches.every((m) => m.is_confirmed) && (
+                          <div className="absolute top-2 left-2">
+                            <Badge variant="success" className="text-xs">
+                              <CheckCircle className="w-3 h-3 mr-1" />
+                              {photo.matches.length}
+                            </Badge>
+                          </div>
+                        )}
+
+                      {/* Hover overlay for photos without unconfirmed matches */}
+                      {(!photo.matches?.some((m) => !m.is_confirmed)) && (
+                        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-red-400"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeletePhoto(photo.id);
+                            }}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      )}
                     </motion.div>
                   ))}
                 </div>
@@ -364,8 +561,8 @@ export default function SessionDetailPage() {
                               className="flex items-center justify-between text-sm"
                             >
                               <span className="text-charcoal-300">
-                                {match.child?.[0]?.first_name}{" "}
-                                {match.child?.[0]?.family?.[0]?.family_name}
+                                {match.child?.first_name}{" "}
+                                {match.child?.family?.family_name}
                               </span>
                               <Badge variant="default" className="text-xs">
                                 {Math.round(match.confidence * 100)}%
