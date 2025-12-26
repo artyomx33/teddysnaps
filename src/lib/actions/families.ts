@@ -4,6 +4,27 @@ import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 
 /**
+ * Set or clear the done status for a family
+ * done=true sets done_at to now(), done=false clears it
+ */
+export async function setFamilyDoneStatus(familyId: string, done: boolean) {
+  const supabase = await createClient();
+
+  const { error } = await supabase
+    .from("families")
+    .update({ done_at: done ? new Date().toISOString() : null })
+    .eq("id", familyId);
+
+  if (error) {
+    console.error("Error setting family done status:", error);
+    throw new Error("Failed to set family done status");
+  }
+
+  revalidatePath("/admin/families");
+  revalidatePath(`/admin/families/${familyId}`);
+}
+
+/**
  * Set the hero photo for a family
  * Used by admins to pick a representative photo from matched photos
  */

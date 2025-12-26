@@ -19,6 +19,8 @@ import {
   AlertTriangle,
   Camera,
   Phone,
+  CheckCircle,
+  RotateCcw,
 } from "lucide-react";
 import { AnimatePresence } from "framer-motion";
 import { Sidebar } from "@/components/layout/sidebar";
@@ -54,18 +56,24 @@ interface Family {
   location: {
     name: string;
   }[] | null;
+  done_at: string | null;
 }
+
+import { setFamilyDoneStatus } from "@/lib/actions/families";
 
 export default function FamiliesPage() {
   const router = useRouter();
   const [families, setFamilies] = useState<Family[]>([]);
   const [purchaseCounts, setPurchaseCounts] = useState<Record<string, number>>({});
+  const [latestOrderAt, setLatestOrderAt] = useState<Record<string, string>>({});
   const [openRetouchCounts, setOpenRetouchCounts] = useState<Record<string, number>>({});
   const [locations, setLocations] = useState<Array<{ id: string; name: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [showAddForm, setShowAddForm] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<"all" | "open" | "done">("all");
+  const [togglingDoneId, setTogglingDoneId] = useState<string | null>(null);
 
   // Merge mode state
   const [isMergeMode, setIsMergeMode] = useState(false);
@@ -101,6 +109,7 @@ export default function FamiliesPage() {
           access_code,
           location_id,
           hero_photo_id,
+          done_at,
           hero_photo:photos!hero_photo_id (id, thumbnail_url, original_url),
           children (id, first_name, reference_photo_url, photo_children(count)),
           location:locations (name)
@@ -117,7 +126,7 @@ export default function FamiliesPage() {
       const [paidOrdersRes, openRetouchRes] = await Promise.all([
         supabase
           .from("orders")
-          .select("family_id")
+          .select("family_id, created_at")
           .in("family_id", familyIds)
           .eq("payment_status", "paid"),
         supabase
@@ -128,10 +137,16 @@ export default function FamiliesPage() {
       ]);
 
       const paidCounts: Record<string, number> = {};
+      const latestOrders: Record<string, string> = {};
       for (const row of paidOrdersRes.data || []) {
         const fid = (row as any).family_id as string;
+        const createdAt = (row as any).created_at as string;
         if (!fid) continue;
         paidCounts[fid] = (paidCounts[fid] || 0) + 1;
+        // Track the latest order timestamp
+        if (!latestOrders[fid] || createdAt > latestOrders[fid]) {
+          latestOrders[fid] = createdAt;
+        }
       }
 
       const openCounts: Record<string, number> = {};
@@ -142,9 +157,11 @@ export default function FamiliesPage() {
       }
 
       setPurchaseCounts(paidCounts);
+      setLatestOrderAt(latestOrders);
       setOpenRetouchCounts(openCounts);
     } else {
       setPurchaseCounts({});
+      setLatestOrderAt({});
       setOpenRetouchCounts({});
     }
 
@@ -355,13 +372,69 @@ export default function FamiliesPage() {
     }, 0);
   };
 
-  const filteredFamilies = families.filter(
-    (family) =>
+  // Compute family status: open/done/none (no orders)
+  const getFamilyStatus = (family: Family): "open" | "done" | "none" => {
+    const hasOrders = (purchaseCounts[family.id] || 0) > 0;
+    if (!hasOrders) return "none";
+
+    const doneAt = family.done_at;
+    const latestOrder = latestOrderAt[family.id];
+
+    // Open if: no done_at OR latest order is after done_at
+    if (!doneAt || (latestOrder && latestOrder > doneAt)) {
+      return "open";
+    }
+    return "done";
+  };
+
+  // Toggle done status
+  const handleToggleDone = async (family: Family) => {
+    const currentStatus = getFamilyStatus(family);
+    const shouldMarkDone = currentStatus === "open";
+
+    setTogglingDoneId(family.id);
+    try {
+      await setFamilyDoneStatus(family.id, shouldMarkDone);
+      // Optimistically update local state
+      setFamilies(prev => prev.map(f =>
+        f.id === family.id
+          ? { ...f, done_at: shouldMarkDone ? new Date().toISOString() : null }
+          : f
+      ));
+    } catch (e) {
+      console.error("Failed to toggle done status:", e);
+    } finally {
+      setTogglingDoneId(null);
+    }
+  };
+
+  // Count families by status
+  const statusCounts = families.reduce(
+    (acc, family) => {
+      const status = getFamilyStatus(family);
+      if (status === "open") acc.open++;
+      else if (status === "done") acc.done++;
+      return acc;
+    },
+    { open: 0, done: 0 }
+  );
+
+  const filteredFamilies = families.filter((family) => {
+    // First apply search filter
+    const matchesSearch =
       family.family_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       family.children?.some((child) =>
         child.first_name.toLowerCase().includes(searchQuery.toLowerCase())
-      )
-  );
+      );
+    if (!matchesSearch) return false;
+
+    // Then apply status filter
+    if (statusFilter === "all") return true;
+    const status = getFamilyStatus(family);
+    if (statusFilter === "open") return status === "open";
+    if (statusFilter === "done") return status === "done";
+    return true;
+  });
 
   if (loading) {
     return (
@@ -432,6 +505,34 @@ export default function FamiliesPage() {
               )}
             </div>
           </div>
+
+          {/* Status Filter Bar */}
+          {(statusCounts.open > 0 || statusCounts.done > 0) && (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-charcoal-400 mr-2">Status:</span>
+              <Button
+                variant={statusFilter === "all" ? "primary" : "outline"}
+                size="sm"
+                onClick={() => setStatusFilter("all")}
+              >
+                All ({families.length})
+              </Button>
+              <Button
+                variant={statusFilter === "open" ? "primary" : "outline"}
+                size="sm"
+                onClick={() => setStatusFilter("open")}
+              >
+                Open ({statusCounts.open})
+              </Button>
+              <Button
+                variant={statusFilter === "done" ? "primary" : "outline"}
+                size="sm"
+                onClick={() => setStatusFilter("done")}
+              >
+                Done ({statusCounts.done})
+              </Button>
+            </div>
+          )}
 
           {/* Merge Mode Instructions */}
           {isMergeMode && (
@@ -581,7 +682,12 @@ export default function FamiliesPage() {
                 </p>
               </Card>
             ) : (
-              filteredFamilies.map((family, index) => (
+              filteredFamilies.map((family, index) => {
+                const familyStatus = getFamilyStatus(family);
+                const isDone = familyStatus === "done";
+                const isOpen = familyStatus === "open";
+
+                return (
                 <motion.div
                   key={family.id}
                   initial={{ opacity: 0, y: 10 }}
@@ -590,12 +696,14 @@ export default function FamiliesPage() {
                 >
                   <Glow
                     variant="gold"
-                    disabled={!(purchaseCounts[family.id] > 0)}
+                    disabled={isDone || !(purchaseCounts[family.id] > 0)}
                     className="rounded-xl"
                   >
                   <Card
                     variant={selectedFamilies.includes(family.id) ? "glow" : "default"}
                     className={`p-4 transition-colors cursor-pointer relative ${
+                      isDone ? "opacity-60" : ""
+                    } ${
                       isMergeMode
                         ? selectedFamilies.includes(family.id)
                           ? "ring-2 ring-gold-500"
@@ -652,7 +760,12 @@ export default function FamiliesPage() {
                             <Badge variant="default" className="text-xs font-mono">
                               {family.access_code}
                             </Badge>
-                            {(purchaseCounts[family.id] || 0) > 0 && (
+                            {isDone ? (
+                              <Badge variant="success" className="text-xs flex items-center gap-1">
+                                <CheckCircle className="w-3 h-3" />
+                                Done
+                              </Badge>
+                            ) : (purchaseCounts[family.id] || 0) > 0 && (
                               <Badge variant="gold" className="text-xs flex items-center gap-1">
                                 <Download className="w-3 h-3" />
                                 {purchaseCounts[family.id]} HD
@@ -704,6 +817,36 @@ export default function FamiliesPage() {
                             {family.phone}
                           </span>
                         )}
+                        {/* Done/Re-open button - only show for families with orders */}
+                        {(isOpen || isDone) && (
+                          <Button
+                            variant={isDone ? "outline" : "ghost"}
+                            size="sm"
+                            className={isDone
+                              ? "text-charcoal-400 hover:text-white"
+                              : "text-green-400 hover:text-green-300 hover:bg-green-500/10"
+                            }
+                            disabled={togglingDoneId === family.id}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleToggleDone(family);
+                            }}
+                          >
+                            {togglingDoneId === family.id ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : isDone ? (
+                              <>
+                                <RotateCcw className="w-4 h-4 mr-1" />
+                                Re-open
+                              </>
+                            ) : (
+                              <>
+                                <CheckCircle className="w-4 h-4 mr-1" />
+                                Done
+                              </>
+                            )}
+                          </Button>
+                        )}
                         <Button
                           variant="ghost"
                           size="sm"
@@ -721,7 +864,8 @@ export default function FamiliesPage() {
                   </Card>
                   </Glow>
                 </motion.div>
-              ))
+                );
+              })
             )}
           </div>
         </div>
