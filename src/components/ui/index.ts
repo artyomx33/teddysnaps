@@ -10,3 +10,4 @@ export {
 } from "./card";
 export { Input, type InputProps } from "./input";
 export { Badge, type BadgeProps } from "./badge";
+export { Glow, type GlowVariant } from "./glow";

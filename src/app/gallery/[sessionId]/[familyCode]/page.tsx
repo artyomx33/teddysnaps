@@ -17,7 +17,7 @@ import Image from "next/image";
 import { useParams } from "next/navigation";
 import { useGalleryStore } from "@/stores";
 import { useCartStore } from "@/stores";
-import { Button, Badge, Card, CardContent } from "@/components/ui";
+import { Button, Badge, Card, CardContent, Glow } from "@/components/ui";
 import { cn, formatPrice } from "@/lib/utils";
 import {
   getFamilyByAccessCode,
@@ -458,27 +458,37 @@ export default function GalleryPage() {
               transition={{ delay: index * 0.02 }}
               className="relative group"
             >
-              <div
-                role="button"
-                tabIndex={0}
-                className={cn(
-                  "relative overflow-hidden rounded-xl cursor-pointer block w-full text-left outline-none focus:ring-2 focus:ring-gold-500/50",
-                  viewMode === "grid" ? "aspect-[4/3]" : "aspect-video"
-                )}
-                onClick={() => setConfirmPhoto(photo)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    setConfirmPhoto(photo);
-                  }
-                }}
-                aria-label="Add photo to cart"
+              <Glow
+                variant="gold"
+                disabled={!purchasedIds.has(photo.id)}
+                className="rounded-xl"
               >
+                <div
+                  role="button"
+                  tabIndex={0}
+                  className={cn(
+                    "relative overflow-hidden rounded-xl cursor-pointer block w-full text-left outline-none focus:ring-2 focus:ring-gold-500/50",
+                    viewMode === "grid" ? "aspect-[4/3]" : "aspect-video"
+                  )}
+                  onClick={() => setConfirmPhoto(photo)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setConfirmPhoto(photo);
+                    }
+                  }}
+                  aria-label="Add photo to cart"
+                >
                 <img
                   src={imagePresets.thumbnail(photo.thumbnailUrl)}
                   alt=""
                   className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                 />
+
+                {/* Dark overlay for non-purchased photos - makes purchased ones stand out */}
+                {!purchasedIds.has(photo.id) && (
+                  <div className="absolute inset-0 bg-black/40 pointer-events-none" />
+                )}
 
                 {/* Loading feedback (first tap may need to fetch products) */}
                 {isLoadingProducts && !perPhotoProduct && (
@@ -540,13 +550,9 @@ export default function GalleryPage() {
                   </button>
                 )}
 
-                {/* Label */}
-                {productsLoaded && perPhotoProduct && (
-                  <div className="pointer-events-none absolute bottom-3 left-3 px-3 py-1.5 rounded-lg bg-black/55 text-white text-sm">
-                    Tap to add {formatPrice(perPhotoProduct.price)}
-                  </div>
-                )}
+                {/* Price label removed - users see price in modal when tapping */}
               </div>
+              </Glow>
             </motion.div>
           ))}
         </div>
