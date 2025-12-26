@@ -19,10 +19,12 @@ import {
 } from "lucide-react";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
-import { Card, CardContent, Button, Badge } from "@/components/ui";
+import { Card, CardContent, Button, Badge, Glow } from "@/components/ui";
+import { Download } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { removeMatch, restoreMatchesForPhoto } from "@/lib/actions/faces";
 import { setFamilyHeroPhoto } from "@/lib/actions/families";
+import { imagePresets } from "@/lib/image-transform";
 
 interface Child {
   id: string;
@@ -117,6 +119,7 @@ export default function FamilyDetailPage() {
   const [settingHeroPhotoId, setSettingHeroPhotoId] = useState<string | null>(null);
 
   const [paidOrdersCount, setPaidOrdersCount] = useState(0);
+  const [purchasedPhotoIds, setPurchasedPhotoIds] = useState<Set<string>>(new Set());
   const [retouchByPhotoId, setRetouchByPhotoId] = useState<
     Record<string, { status: string; retouchedUrl: string | null }>
   >({});
@@ -163,10 +166,16 @@ export default function FamilyDetailPage() {
   useEffect(() => {
     async function fetchPurchasesAndRetouch() {
       const supabase = createClient();
-      const [paidOrdersRes, retouchRes] = await Promise.all([
+      const [paidOrdersRes, orderItemsRes, retouchRes] = await Promise.all([
         supabase
           .from("orders")
           .select("id", { count: "exact", head: true })
+          .eq("family_id", familyId)
+          .eq("payment_status", "paid"),
+        // Fetch actual purchased photo IDs from paid orders
+        supabase
+          .from("orders")
+          .select("id, order_items(photo_id)")
           .eq("family_id", familyId)
           .eq("payment_status", "paid"),
         supabase
@@ -176,6 +185,16 @@ export default function FamilyDetailPage() {
       ]);
 
       setPaidOrdersCount(paidOrdersRes.count || 0);
+
+      // Extract purchased photo IDs
+      const purchasedIds = new Set<string>();
+      for (const order of orderItemsRes.data || []) {
+        const items = (order as any).order_items || [];
+        for (const item of items) {
+          if (item.photo_id) purchasedIds.add(item.photo_id);
+        }
+      }
+      setPurchasedPhotoIds(purchasedIds);
 
       const map: Record<string, { status: string; retouchedUrl: string | null }> = {};
       let open = 0;
@@ -722,8 +741,13 @@ export default function FamilyDetailPage() {
               ) : (
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
                   {visiblePhotos.slice(0, 120).map((p) => (
-                    <a
+                    <Glow
                       key={p.photoId}
+                      variant="gold"
+                      disabled={!purchasedPhotoIds.has(p.photoId)}
+                      className="rounded-lg"
+                    >
+                    <a
                       href={p.originalUrl}
                       target="_blank"
                       rel="noreferrer"
@@ -732,10 +756,18 @@ export default function FamilyDetailPage() {
                     >
                       <div className="relative aspect-square rounded-lg overflow-hidden border border-charcoal-700 group-hover:border-charcoal-500 transition-colors">
                         <img
-                          src={p.thumbnailUrl}
+                          src={imagePresets.thumbnail(p.thumbnailUrl)}
                           alt=""
                           className="w-full h-full object-cover"
                         />
+
+                        {/* HD badge for purchased photos */}
+                        {purchasedPhotoIds.has(p.photoId) && (
+                          <div className="absolute top-2 left-10 px-1.5 py-0.5 rounded bg-gold-500 text-black text-[10px] font-bold flex items-center gap-0.5">
+                            <Download className="w-2.5 h-2.5" />
+                            HD
+                          </div>
+                        )}
 
                         {retouchByPhotoId[p.photoId] && (
                           <div className="absolute bottom-2 left-2">
@@ -825,6 +857,7 @@ export default function FamilyDetailPage() {
                         )}
                       </div>
                     </a>
+                    </Glow>
                   ))}
                 </div>
               )}

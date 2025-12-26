@@ -23,8 +23,10 @@ import {
 import { AnimatePresence } from "framer-motion";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
-import { Card, CardContent, Badge, Button, Input } from "@/components/ui";
+import { Card, Badge, Button, Input, Glow } from "@/components/ui";
+import { Download } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { imagePresets } from "@/lib/image-transform";
 
 interface Child {
   id: string;
@@ -586,6 +588,11 @@ export default function FamiliesPage() {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: index * 0.03 }}
                 >
+                  <Glow
+                    variant="gold"
+                    disabled={!(purchaseCounts[family.id] > 0)}
+                    className="rounded-xl"
+                  >
                   <Card
                     variant={selectedFamilies.includes(family.id) ? "glow" : "default"}
                     className={`p-4 transition-colors cursor-pointer relative ${
@@ -623,13 +630,13 @@ export default function FamiliesPage() {
                         <div className="w-12 h-12 rounded-full overflow-hidden bg-gradient-to-br from-teal-400 to-teal-600 flex items-center justify-center text-white font-serif text-lg flex-shrink-0">
                           {family.hero_photo?.[0]?.thumbnail_url || family.hero_photo?.[0]?.original_url ? (
                             <img
-                              src={family.hero_photo[0].thumbnail_url || family.hero_photo[0].original_url}
+                              src={imagePresets.thumbnail(family.hero_photo[0].thumbnail_url || family.hero_photo[0].original_url)}
                               alt=""
                               className="w-full h-full object-cover"
                             />
                           ) : family.children?.find(c => c.reference_photo_url)?.reference_photo_url ? (
                             <img
-                              src={family.children.find(c => c.reference_photo_url)!.reference_photo_url!}
+                              src={imagePresets.thumbnail(family.children.find(c => c.reference_photo_url)!.reference_photo_url!)}
                               alt=""
                               className="w-full h-full object-cover"
                             />
@@ -646,8 +653,9 @@ export default function FamiliesPage() {
                               {family.access_code}
                             </Badge>
                             {(purchaseCounts[family.id] || 0) > 0 && (
-                              <Badge variant="success" className="text-xs">
-                                {purchaseCounts[family.id]} paid
+                              <Badge variant="gold" className="text-xs flex items-center gap-1">
+                                <Download className="w-3 h-3" />
+                                {purchaseCounts[family.id]} HD
                               </Badge>
                             )}
                             {(openRetouchCounts[family.id] || 0) > 0 && (
@@ -711,6 +719,7 @@ export default function FamiliesPage() {
                       </div>
                     </div>
                   </Card>
+                  </Glow>
                 </motion.div>
               ))
             )}

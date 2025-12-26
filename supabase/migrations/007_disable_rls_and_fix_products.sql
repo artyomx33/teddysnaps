@@ -36,3 +36,4 @@ alter table products
   add column if not exists description text;
 
 
+
