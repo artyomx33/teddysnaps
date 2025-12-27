@@ -16,6 +16,9 @@ import {
   Star,
   Mail,
   MessageCircle,
+  Sparkles,
+  Trash2,
+  ImagePlus,
 } from "lucide-react";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
@@ -127,6 +130,21 @@ export default function FamilyDetailPage() {
   const [retouchUploadPhotoId, setRetouchUploadPhotoId] = useState<string | null>(null);
   const [retouchUploadingPhotoId, setRetouchUploadingPhotoId] = useState<string | null>(null);
   const [retouchUploadError, setRetouchUploadError] = useState<string | null>(null);
+
+  // Retouched photos section state
+  interface RetouchedPhoto {
+    id: string;
+    original_url: string;
+    thumbnail_url: string | null;
+    filename: string | null;
+    created_at: string;
+  }
+  const [retouchedPhotos, setRetouchedPhotos] = useState<RetouchedPhoto[]>([]);
+  const [retouchedLoading, setRetouchedLoading] = useState(false);
+  const [uploadingRetouched, setUploadingRetouched] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const [deletingPhotoId, setDeletingPhotoId] = useState<string | null>(null);
+  const retouchedFileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     async function fetchFamily() {
@@ -313,6 +331,31 @@ export default function FamilyDetailPage() {
   useEffect(() => {
     fetchFamilyPhotos().catch(() => {});
   }, [fetchFamilyPhotos]);
+
+  // Fetch retouched photos for this family
+  const fetchRetouchedPhotos = useCallback(async () => {
+    setRetouchedLoading(true);
+    try {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("photos")
+        .select("id, original_url, thumbnail_url, filename, created_at")
+        .eq("family_id", familyId)
+        .eq("is_retouched", true)
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+      setRetouchedPhotos(data || []);
+    } catch (e) {
+      console.error("Error fetching retouched photos:", e);
+    } finally {
+      setRetouchedLoading(false);
+    }
+  }, [familyId]);
+
+  useEffect(() => {
+    fetchRetouchedPhotos().catch(() => {});
+  }, [fetchRetouchedPhotos]);
 
   const handleRemovePhoto = async (photo: FamilyPhoto) => {
     if (pendingRemovePhotoId) return;
@@ -505,6 +548,66 @@ export default function FamilyDetailPage() {
       setRetouchUploadingPhotoId(null);
       setRetouchUploadPhotoId(null);
       if (retouchFileInputRef.current) retouchFileInputRef.current.value = "";
+    }
+  };
+
+  // Retouched photos upload handlers
+  const handleRetouchedDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const files = Array.from(e.dataTransfer.files).filter((f) =>
+      f.type.startsWith("image/")
+    );
+    if (files.length === 0) return;
+    await uploadRetouchedFiles(files);
+  };
+
+  const handleRetouchedFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    await uploadRetouchedFiles(files);
+    if (retouchedFileInputRef.current) retouchedFileInputRef.current.value = "";
+  };
+
+  const uploadRetouchedFiles = async (files: File[]) => {
+    setUploadingRetouched(true);
+    try {
+      for (const file of files) {
+        const fd = new FormData();
+        fd.set("file", file);
+
+        const res = await fetch(`/api/families/${familyId}/photos`, {
+          method: "POST",
+          body: fd,
+        });
+        const json = await res.json();
+        if (!json.ok) {
+          console.error("Upload failed:", json.message);
+        }
+      }
+      await fetchRetouchedPhotos();
+    } catch (err) {
+      console.error("Upload error:", err);
+    } finally {
+      setUploadingRetouched(false);
+    }
+  };
+
+  const handleDeleteRetouchedPhoto = async (photoId: string) => {
+    if (deletingPhotoId) return;
+    setDeletingPhotoId(photoId);
+    try {
+      const res = await fetch(`/api/families/${familyId}/photos?photoId=${photoId}`, {
+        method: "DELETE",
+      });
+      const json = await res.json();
+      if (json.ok) {
+        setRetouchedPhotos((prev) => prev.filter((p) => p.id !== photoId));
+      }
+    } catch (err) {
+      console.error("Delete error:", err);
+    } finally {
+      setDeletingPhotoId(null);
     }
   };
 
@@ -889,6 +992,111 @@ export default function FamilyDetailPage() {
             </CardContent>
           </Card>
 
+          {/* Retouched Photos Section */}
+          <Card variant="glass">
+            <CardContent className="space-y-4">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-pink-400" />
+                <h3 className="font-medium text-white">Bewerkte Foto&apos;s</h3>
+                <span className="text-sm text-charcoal-400">
+                  ({retouchedPhotos.length} photos)
+                </span>
+              </div>
+
+              {/* Drag & Drop Upload Zone */}
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setDragOver(true);
+                }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={handleRetouchedDrop}
+                className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
+                  dragOver
+                    ? "border-pink-400 bg-pink-500/10"
+                    : "border-charcoal-600 hover:border-charcoal-500"
+                }`}
+              >
+                {uploadingRetouched ? (
+                  <div className="flex items-center justify-center gap-2 text-charcoal-300">
+                    <Loader2 className="w-5 h-5 animate-spin text-pink-400" />
+                    Uploading...
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <ImagePlus className="w-8 h-8 mx-auto text-charcoal-500" />
+                    <p className="text-charcoal-400">
+                      Drop retouched photos here or{" "}
+                      <button
+                        type="button"
+                        onClick={() => retouchedFileInputRef.current?.click()}
+                        className="text-pink-400 hover:text-pink-300 underline"
+                      >
+                        browse
+                      </button>
+                    </p>
+                    <p className="text-xs text-charcoal-500">
+                      Supports multiple files
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Retouched Photos Grid */}
+              {retouchedLoading ? (
+                <div className="flex items-center gap-2 text-charcoal-400">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Loading...
+                </div>
+              ) : retouchedPhotos.length === 0 ? (
+                <p className="text-sm text-charcoal-500">
+                  No retouched photos yet. Upload some above.
+                </p>
+              ) : (
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                  {retouchedPhotos.map((photo) => (
+                    <div key={photo.id} className="group relative">
+                      <a
+                        href={photo.original_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="block"
+                      >
+                        <div className="aspect-square rounded-lg overflow-hidden border border-charcoal-700 group-hover:border-pink-400/50 transition-colors">
+                          <img
+                            src={photo.thumbnail_url || photo.original_url}
+                            alt={photo.filename || "Retouched photo"}
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                      </a>
+                      {/* Delete button */}
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteRetouchedPhoto(photo.id)}
+                        disabled={deletingPhotoId === photo.id}
+                        className="absolute top-2 right-2 p-1.5 rounded-md bg-black/60 text-white hover:bg-red-500/80 transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-60"
+                        title="Delete photo"
+                      >
+                        {deletingPhotoId === photo.id ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <Trash2 className="w-3 h-3" />
+                        )}
+                      </button>
+                      {/* Filename */}
+                      {photo.filename && (
+                        <p className="mt-1 text-xs text-charcoal-500 truncate">
+                          {photo.filename}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           {/* Hidden file input */}
           <input
             ref={fileInputRef}
@@ -904,6 +1112,15 @@ export default function FamilyDetailPage() {
             accept="image/*"
             className="hidden"
             onChange={handleRetouchFileSelect}
+          />
+
+          <input
+            ref={retouchedFileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={handleRetouchedFileSelect}
           />
 
           {retouchUploadError && (

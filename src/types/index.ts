@@ -49,7 +49,9 @@ export interface PhotoSession {
 
 export interface Photo {
   id: string;
-  session_id: string;
+  session_id: string | null;
+  family_id: string | null;
+  is_retouched: boolean;
   original_url: string;
   thumbnail_url: string | null;
   processed_url: string | null;

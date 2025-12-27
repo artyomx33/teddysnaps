@@ -11,6 +11,7 @@ import {
   ChevronRight,
   Loader2,
   Download,
+  Sparkles,
 } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
@@ -26,6 +27,7 @@ import {
   getPhotosForFamily,
   setPhotoLike,
   getPurchasedPhotoIds,
+  getRetouchedPhotosForFamily,
   type Photo,
   type Family,
   type Session,
@@ -70,6 +72,15 @@ export default function GalleryPage() {
   const [pricingError, setPricingError] = useState<string | null>(null);
   const [purchasedIds, setPurchasedIds] = useState<Set<string>>(new Set());
 
+  // Retouched photos for this family
+  interface RetouchedPhoto {
+    id: string;
+    original_url: string;
+    thumbnail_url: string | null;
+    filename: string | null;
+  }
+  const [retouchedPhotos, setRetouchedPhotos] = useState<RetouchedPhoto[]>([]);
+
   // Fetch gallery data
   useEffect(() => {
     async function fetchData() {
@@ -113,6 +124,10 @@ export default function GalleryPage() {
         // Fetch purchased photo IDs (paid orders)
         const purchased = await getPurchasedPhotoIds(familyData.id);
         setPurchasedIds(purchased);
+
+        // Fetch retouched photos for this family
+        const retouched = await getRetouchedPhotosForFamily(familyData.id);
+        setRetouchedPhotos(retouched);
 
         // Fetch products server-side (service role) so parent pricing always loads.
         // If nothing is priced (>0), we show a friendly "pricing not configured" message.
@@ -563,6 +578,73 @@ export default function GalleryPage() {
             <p className="text-charcoal-400">
               No liked photos yet. Tap the heart to save your favorites!
             </p>
+          </div>
+        )}
+
+        {/* Retouched Photos Section */}
+        {retouchedPhotos.length > 0 && (
+          <div className="mt-12 pt-8 border-t border-charcoal-800">
+            <div className="flex items-center gap-2 mb-6">
+              <Sparkles className="w-5 h-5 text-pink-400" />
+              <h2 className="text-xl font-serif text-white">Bewerkte Foto&apos;s</h2>
+              <span className="text-sm text-charcoal-400">
+                ({retouchedPhotos.length})
+              </span>
+            </div>
+            <div
+              className={cn(
+                "grid gap-4",
+                viewMode === "grid"
+                  ? "grid-cols-2 md:grid-cols-3 lg:grid-cols-4"
+                  : "grid-cols-1 max-w-2xl mx-auto"
+              )}
+            >
+              {retouchedPhotos.map((photo, index) => (
+                <motion.div
+                  key={photo.id}
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: index * 0.02 }}
+                  className="relative group"
+                >
+                  <Glow variant="gold" className="rounded-xl">
+                    <a
+                      href={photo.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className={cn(
+                        "relative overflow-hidden rounded-xl block",
+                        viewMode === "grid" ? "aspect-[4/3]" : "aspect-video"
+                      )}
+                    >
+                      <img
+                        src={imagePresets.thumbnail(photo.thumbnailUrl)}
+                        alt={photo.filename || "Bewerkte foto"}
+                        className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                      />
+                      {/* Download button */}
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault();
+                          const link = document.createElement("a");
+                          link.href = photo.url;
+                          link.download = photo.filename || `teddysnaps-${photo.id}.jpg`;
+                          link.target = "_blank";
+                          document.body.appendChild(link);
+                          link.click();
+                          document.body.removeChild(link);
+                        }}
+                        className="absolute top-3 left-3 px-2 py-1.5 rounded-lg bg-pink-500 text-white text-xs font-bold flex items-center gap-1 hover:bg-pink-400 transition-colors shadow-lg"
+                        title="Download bewerkte foto"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        Download
+                      </button>
+                    </a>
+                  </Glow>
+                </motion.div>
+              ))}
+            </div>
           </div>
         )}
       </main>

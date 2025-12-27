@@ -433,3 +433,31 @@ export async function getAllPhotosInSession(sessionId: string): Promise<Photo[]>
     isLiked: false,
   }));
 }
+
+/**
+ * Get retouched photos uploaded for a family (is_retouched = true)
+ */
+export async function getRetouchedPhotosForFamily(
+  familyId: string
+): Promise<Array<{ id: string; url: string; thumbnailUrl: string; filename: string | null }>> {
+  const supabase = createAdminClient();
+
+  const { data, error } = await supabase
+    .from("photos")
+    .select("id, original_url, thumbnail_url, filename")
+    .eq("family_id", familyId)
+    .eq("is_retouched", true)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error("Error fetching retouched photos:", error);
+    return [];
+  }
+
+  return (data || []).map((photo: any) => ({
+    id: photo.id,
+    url: photo.original_url,
+    thumbnailUrl: photo.thumbnail_url || photo.original_url,
+    filename: photo.filename,
+  }));
+}
