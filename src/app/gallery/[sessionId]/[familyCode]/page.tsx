@@ -75,8 +75,8 @@ export default function GalleryPage() {
   // Retouched photos for this family
   interface RetouchedPhoto {
     id: string;
-    original_url: string;
-    thumbnail_url: string | null;
+    url: string;
+    thumbnailUrl: string;
     filename: string | null;
   }
   const [retouchedPhotos, setRetouchedPhotos] = useState<RetouchedPhoto[]>([]);
