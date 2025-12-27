@@ -3,6 +3,11 @@
 import { resend, FROM_EMAIL } from "./resend";
 import { OrderConfirmationEmail } from "./templates/order-confirmation";
 import { PhotosReadyEmail } from "./templates/photos-ready";
+import {
+  BulkMessageEmail,
+  BulkEmailType,
+  getSubjectForTemplate,
+} from "./templates/bulk-message";
 
 export async function sendOrderConfirmationEmail(params: {
   to: string;
@@ -66,6 +71,46 @@ export async function sendPhotosReadyEmail(params: {
     return { ok: true };
   } catch (err) {
     console.error("Error sending photos ready email:", err);
+    return { ok: false, error: String(err) };
+  }
+}
+
+export async function sendBulkEmail(params: {
+  to: string;
+  familyName: string;
+  childName?: string;
+  templateType: BulkEmailType;
+  customMessage?: string;
+  galleryUrl: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const subject = getSubjectForTemplate(
+      params.templateType,
+      params.familyName,
+      params.childName
+    );
+
+    const { error } = await resend.emails.send({
+      from: FROM_EMAIL,
+      to: params.to,
+      subject,
+      react: BulkMessageEmail({
+        familyName: params.familyName,
+        childName: params.childName,
+        templateType: params.templateType,
+        customMessage: params.customMessage,
+        galleryUrl: params.galleryUrl,
+      }),
+    });
+
+    if (error) {
+      console.error("Failed to send bulk email:", error);
+      return { ok: false, error: error.message };
+    }
+
+    return { ok: true };
+  } catch (err) {
+    console.error("Error sending bulk email:", err);
     return { ok: false, error: String(err) };
   }
 }
