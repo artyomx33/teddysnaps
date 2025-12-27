@@ -7,6 +7,13 @@ export interface Location {
   created_at: string;
 }
 
+export interface SentEmail {
+  type: "reminder" | "promotional" | "custom";
+  sent_at: string;
+  status: "sent" | "failed";
+  error?: string;
+}
+
 export interface Family {
   id: string;
   location_id: string;
@@ -14,6 +21,8 @@ export interface Family {
   email: string | null;
   phone: string | null;
   access_code: string;
+  last_gallery_access: string | null;
+  sent_emails: SentEmail[];
   created_at: string;
 }
 

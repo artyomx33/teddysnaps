@@ -97,7 +97,10 @@ export async function POST(req: Request) {
       );
     }
 
-    const update: Record<string, unknown> = {};
+    const update: Record<string, unknown> = {
+      // Always update last_gallery_access when family accesses gallery
+      last_gallery_access: new Date().toISOString(),
+    };
     if (email) update.email = email;
     // whatsapp is optional; allow clearing by sending empty string
     if (body?.whatsapp !== undefined) update.phone = whatsapp || null;

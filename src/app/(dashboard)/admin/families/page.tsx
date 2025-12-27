@@ -21,6 +21,9 @@ import {
   Phone,
   CheckCircle,
   RotateCcw,
+  Mail,
+  Send,
+  Pencil,
 } from "lucide-react";
 import { AnimatePresence } from "framer-motion";
 import { Sidebar } from "@/components/layout/sidebar";
@@ -57,6 +60,7 @@ interface Family {
     name: string;
   }[] | null;
   done_at: string | null;
+  last_gallery_access: string | null;
 }
 
 import { setFamilyDoneStatus } from "@/lib/actions/families";
@@ -81,6 +85,18 @@ export default function FamiliesPage() {
   const [showMergeModal, setShowMergeModal] = useState(false);
   const [merging, setMerging] = useState(false);
   const [mergeError, setMergeError] = useState<string | null>(null);
+
+  // Email mode state
+  const [isEmailMode, setIsEmailMode] = useState(false);
+  const [selectedEmailFamilies, setSelectedEmailFamilies] = useState<string[]>([]);
+  const [showEmailModal, setShowEmailModal] = useState(false);
+  const [emailTemplate, setEmailTemplate] = useState<"reminder" | "promotional" | "custom">("reminder");
+  const [customMessage, setCustomMessage] = useState("");
+  const [sendingEmails, setSendingEmails] = useState(false);
+  const [emailResult, setEmailResult] = useState<{ sent: number; failed: number } | null>(null);
+  const [hotLeadsOnly, setHotLeadsOnly] = useState(false);
+  const [editingEmailId, setEditingEmailId] = useState<string | null>(null);
+  const [editEmailValue, setEditEmailValue] = useState("");
 
   // Form state
   const [newFamily, setNewFamily] = useState({
@@ -110,6 +126,7 @@ export default function FamiliesPage() {
           location_id,
           hero_photo_id,
           done_at,
+          last_gallery_access,
           hero_photo:photos!hero_photo_id (id, thumbnail_url, original_url),
           children (id, first_name, reference_photo_url, photo_children(count)),
           location:locations (name)
@@ -363,6 +380,91 @@ export default function FamiliesPage() {
   const destinationFamily = selectedFamilies[1] ? families.find((f) => f.id === selectedFamilies[1]) : null;
   const locationMismatch = sourceFamily && destinationFamily && sourceFamily.location_id !== destinationFamily.location_id;
 
+  // Email mode handlers
+  const exitEmailMode = () => {
+    setIsEmailMode(false);
+    setSelectedEmailFamilies([]);
+    setShowEmailModal(false);
+    setEmailResult(null);
+    setHotLeadsOnly(false);
+  };
+
+  const handleEmailFamilySelect = (familyId: string, hasEmail: boolean) => {
+    if (!isEmailMode || !hasEmail) return;
+
+    setSelectedEmailFamilies((prev) => {
+      if (prev.includes(familyId)) {
+        return prev.filter((id) => id !== familyId);
+      }
+      return [...prev, familyId];
+    });
+  };
+
+  // Check if family is a "hot lead" (accessed gallery in last 10 days)
+  const isHotLead = (family: Family): boolean => {
+    if (!family.last_gallery_access) return false;
+    const tenDaysAgo = new Date();
+    tenDaysAgo.setDate(tenDaysAgo.getDate() - 10);
+    return new Date(family.last_gallery_access) > tenDaysAgo;
+  };
+
+  // Get families with email for "Select All" button
+  const familiesWithEmail = families.filter((f) => f.email);
+  const hotLeadFamilies = familiesWithEmail.filter(isHotLead);
+
+  const handleSelectAllWithEmail = () => {
+    const targetFamilies = hotLeadsOnly ? hotLeadFamilies : familiesWithEmail;
+    setSelectedEmailFamilies(targetFamilies.map((f) => f.id));
+  };
+
+  const handleSendEmails = async () => {
+    if (selectedEmailFamilies.length === 0) return;
+
+    setSendingEmails(true);
+    setEmailResult(null);
+
+    try {
+      const response = await fetch("/api/admin/email/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          familyIds: selectedEmailFamilies,
+          templateType: emailTemplate,
+          customMessage: emailTemplate === "custom" ? customMessage : undefined,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.ok) {
+        setEmailResult({ sent: data.sent, failed: data.failed });
+        setSelectedEmailFamilies([]);
+        setShowEmailModal(false);
+      } else {
+        setEmailResult({ sent: 0, failed: selectedEmailFamilies.length });
+      }
+    } catch {
+      setEmailResult({ sent: 0, failed: selectedEmailFamilies.length });
+    } finally {
+      setSendingEmails(false);
+    }
+  };
+
+  const handleUpdateEmail = async (familyId: string, newEmail: string) => {
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("families")
+      .update({ email: newEmail || null })
+      .eq("id", familyId);
+
+    if (!error) {
+      setFamilies((prev) =>
+        prev.map((f) => (f.id === familyId ? { ...f, email: newEmail || null } : f))
+      );
+    }
+    setEditingEmailId(null);
+  };
+
   // Calculate total photo count for a family (sum of all children's photo_children counts)
   const getFamilyPhotoCount = (family: Family): number => {
     if (!family.children) return 0;
@@ -485,8 +587,34 @@ export default function FamiliesPage() {
                     Preview Merge
                   </Button>
                 </>
+              ) : isEmailMode ? (
+                <>
+                  <span className="text-sm text-charcoal-400">
+                    {selectedEmailFamilies.length} selected
+                  </span>
+                  <Button variant="ghost" onClick={exitEmailMode}>
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="primary"
+                    onClick={() => setShowEmailModal(true)}
+                    disabled={selectedEmailFamilies.length === 0}
+                    className="bg-pink-500 hover:bg-pink-400"
+                  >
+                    <Send className="w-4 h-4 mr-2" />
+                    Compose Email
+                  </Button>
+                </>
               ) : (
                 <>
+                  <Button
+                    variant="outline"
+                    onClick={() => setIsEmailMode(true)}
+                    className="border-pink-500/50 text-pink-400 hover:bg-pink-500/10"
+                  >
+                    <Mail className="w-4 h-4 mr-2" />
+                    Send Emails
+                  </Button>
                   <Button
                     variant="outline"
                     onClick={() => setIsMergeMode(true)}
@@ -546,6 +674,78 @@ export default function FamiliesPage() {
                   <p className="text-charcoal-300">
                     <span className="text-gold-500 font-medium">Merge Mode:</span> Select 2 families to merge. The first family selected will be merged INTO the second.
                   </p>
+                </div>
+              </Card>
+            </motion.div>
+          )}
+
+          {/* Email Mode Instructions */}
+          {isEmailMode && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+            >
+              <Card variant="glass" className="p-4 border-pink-500/30">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <Mail className="w-5 h-5 text-pink-500" />
+                    <p className="text-charcoal-300">
+                      <span className="text-pink-500 font-medium">Email Mode:</span> Select families to email. Only families with email addresses are selectable.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <label className="flex items-center gap-2 text-sm text-charcoal-400 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={hotLeadsOnly}
+                        onChange={(e) => setHotLeadsOnly(e.target.checked)}
+                        className="rounded border-charcoal-600 bg-charcoal-800 text-pink-500 focus:ring-pink-500"
+                      />
+                      Hot leads only ({hotLeadFamilies.length})
+                    </label>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleSelectAllWithEmail}
+                      className="border-pink-500/50 text-pink-400"
+                    >
+                      Select All ({hotLeadsOnly ? hotLeadFamilies.length : familiesWithEmail.length})
+                    </Button>
+                  </div>
+                </div>
+              </Card>
+            </motion.div>
+          )}
+
+          {/* Email Result Banner */}
+          {emailResult && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+            >
+              <Card
+                variant="glass"
+                className={`p-4 ${
+                  emailResult.failed > 0
+                    ? "border-amber-500/30 bg-amber-500/10"
+                    : "border-teal-500/30 bg-teal-500/10"
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    {emailResult.failed > 0 ? (
+                      <AlertTriangle className="w-5 h-5 text-amber-400" />
+                    ) : (
+                      <CheckCircle className="w-5 h-5 text-teal-400" />
+                    )}
+                    <p className="text-charcoal-200">
+                      Sent {emailResult.sent} emails successfully
+                      {emailResult.failed > 0 && `, ${emailResult.failed} failed`}
+                    </p>
+                  </div>
+                  <Button variant="ghost" size="sm" onClick={() => setEmailResult(null)}>
+                    Dismiss
+                  </Button>
                 </div>
               </Card>
             </motion.div>
@@ -708,11 +908,19 @@ export default function FamiliesPage() {
                         ? selectedFamilies.includes(family.id)
                           ? "ring-2 ring-gold-500"
                           : "hover:ring-2 hover:ring-gold-500/50"
+                        : isEmailMode
+                        ? selectedEmailFamilies.includes(family.id)
+                          ? "ring-2 ring-pink-500"
+                          : family.email
+                          ? "hover:ring-2 hover:ring-pink-500/50"
+                          : "opacity-50"
                         : "hover:bg-charcoal-800/50"
                     }`}
                     onClick={() => {
                       if (isMergeMode) {
                         handleFamilySelect(family.id);
+                      } else if (isEmailMode) {
+                        handleEmailFamilySelect(family.id, !!family.email);
                       } else {
                         router.push(`/admin/families/${family.id}`);
                       }
@@ -729,6 +937,25 @@ export default function FamiliesPage() {
                           </div>
                         ) : (
                           <div className="w-6 h-6 rounded-full border-2 border-charcoal-600" />
+                        )}
+                      </div>
+                    )}
+
+                    {/* Selection indicator in email mode */}
+                    {isEmailMode && (
+                      <div className="absolute top-3 right-3">
+                        {family.email ? (
+                          selectedEmailFamilies.includes(family.id) ? (
+                            <div className="w-6 h-6 rounded-full bg-pink-500 flex items-center justify-center">
+                              <Check className="w-4 h-4 text-white" />
+                            </div>
+                          ) : (
+                            <div className="w-6 h-6 rounded-full border-2 border-pink-500/50" />
+                          )
+                        ) : (
+                          <div className="w-6 h-6 rounded-full border-2 border-charcoal-700 flex items-center justify-center opacity-50">
+                            <X className="w-3 h-3 text-charcoal-500" />
+                          </div>
                         )}
                       </div>
                     )}
@@ -806,10 +1033,40 @@ export default function FamiliesPage() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        {family.email && (
-                          <span className="text-sm text-charcoal-400">
-                            {family.email}
-                          </span>
+                        {/* Inline email editing */}
+                        {editingEmailId === family.id ? (
+                          <form
+                            onSubmit={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              handleUpdateEmail(family.id, editEmailValue);
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                            className="flex items-center gap-1"
+                          >
+                            <Input
+                              type="email"
+                              value={editEmailValue}
+                              onChange={(e) => setEditEmailValue(e.target.value)}
+                              placeholder="email@example.com"
+                              className="w-48 h-8 text-sm"
+                              autoFocus
+                              onBlur={() => handleUpdateEmail(family.id, editEmailValue)}
+                            />
+                          </form>
+                        ) : (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingEmailId(family.id);
+                              setEditEmailValue(family.email || "");
+                            }}
+                            className="flex items-center gap-1 text-sm text-charcoal-400 hover:text-white group"
+                          >
+                            <Mail className="w-3.5 h-3.5" />
+                            {family.email || <span className="text-charcoal-500">Add email</span>}
+                            <Pencil className="w-3 h-3 opacity-0 group-hover:opacity-100" />
+                          </button>
                         )}
                         {family.phone && (
                           <span className="text-sm text-charcoal-400 inline-flex items-center gap-1">
@@ -1024,6 +1281,160 @@ export default function FamiliesPage() {
                       <>
                         <GitMerge className="w-4 h-4 mr-2" />
                         Confirm Merge
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Email Composer Modal */}
+        <AnimatePresence>
+          {showEmailModal && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+              onClick={() => !sendingEmails && setShowEmailModal(false)}
+            >
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                className="bg-charcoal-900 rounded-xl border border-charcoal-800 p-6 max-w-xl w-full"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* Header */}
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-xl font-serif text-white">Compose Email</h2>
+                  <button
+                    onClick={() => !sendingEmails && setShowEmailModal(false)}
+                    className="text-charcoal-400 hover:text-white"
+                    disabled={sendingEmails}
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {/* Recipient count */}
+                <div className="mb-6">
+                  <Badge variant="default" className="text-sm">
+                    <Mail className="w-3.5 h-3.5 mr-1" />
+                    {selectedEmailFamilies.length} recipients
+                  </Badge>
+                </div>
+
+                {/* Template selector */}
+                <div className="space-y-3 mb-6">
+                  <p className="text-sm text-charcoal-400">Select template:</p>
+                  <label
+                    className={`flex items-start gap-3 p-4 rounded-lg border cursor-pointer transition-colors ${
+                      emailTemplate === "reminder"
+                        ? "border-pink-500 bg-pink-500/10"
+                        : "border-charcoal-700 hover:border-charcoal-600"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="template"
+                      value="reminder"
+                      checked={emailTemplate === "reminder"}
+                      onChange={() => setEmailTemplate("reminder")}
+                      className="mt-1 text-pink-500 focus:ring-pink-500"
+                    />
+                    <div>
+                      <p className="font-medium text-white">Photo Reminder</p>
+                      <p className="text-sm text-charcoal-400">
+                        &quot;De mooiste momenten staan klaar&quot; - remind families their photos are ready
+                      </p>
+                    </div>
+                  </label>
+
+                  <label
+                    className={`flex items-start gap-3 p-4 rounded-lg border cursor-pointer transition-colors ${
+                      emailTemplate === "promotional"
+                        ? "border-pink-500 bg-pink-500/10"
+                        : "border-charcoal-700 hover:border-charcoal-600"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="template"
+                      value="promotional"
+                      checked={emailTemplate === "promotional"}
+                      onChange={() => setEmailTemplate("promotional")}
+                      className="mt-1 text-pink-500 focus:ring-pink-500"
+                    />
+                    <div>
+                      <p className="font-medium text-white">Promotional</p>
+                      <p className="text-sm text-charcoal-400">
+                        &quot;Speciale aanbieding!&quot; - for special offers and discounts
+                      </p>
+                    </div>
+                  </label>
+
+                  <label
+                    className={`flex items-start gap-3 p-4 rounded-lg border cursor-pointer transition-colors ${
+                      emailTemplate === "custom"
+                        ? "border-pink-500 bg-pink-500/10"
+                        : "border-charcoal-700 hover:border-charcoal-600"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="template"
+                      value="custom"
+                      checked={emailTemplate === "custom"}
+                      onChange={() => setEmailTemplate("custom")}
+                      className="mt-1 text-pink-500 focus:ring-pink-500"
+                    />
+                    <div>
+                      <p className="font-medium text-white">Custom Message</p>
+                      <p className="text-sm text-charcoal-400">Write your own message</p>
+                    </div>
+                  </label>
+                </div>
+
+                {/* Custom message textarea */}
+                {emailTemplate === "custom" && (
+                  <div className="mb-6">
+                    <label className="block text-sm text-charcoal-400 mb-2">Your message:</label>
+                    <textarea
+                      value={customMessage}
+                      onChange={(e) => setCustomMessage(e.target.value)}
+                      placeholder="Write your message here..."
+                      className="w-full h-32 px-4 py-3 bg-charcoal-800 border border-charcoal-700 rounded-lg text-white placeholder-charcoal-500 resize-none focus:outline-none focus:ring-2 focus:ring-pink-500"
+                    />
+                  </div>
+                )}
+
+                {/* Actions */}
+                <div className="flex justify-end gap-3 pt-4 border-t border-charcoal-700">
+                  <Button
+                    variant="ghost"
+                    onClick={() => setShowEmailModal(false)}
+                    disabled={sendingEmails}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="primary"
+                    onClick={handleSendEmails}
+                    disabled={sendingEmails || (emailTemplate === "custom" && !customMessage.trim())}
+                    className="bg-pink-500 hover:bg-pink-400"
+                  >
+                    {sendingEmails ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Sending...
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-4 h-4 mr-2" />
+                        Send to {selectedEmailFamilies.length} families
                       </>
                     )}
                   </Button>
