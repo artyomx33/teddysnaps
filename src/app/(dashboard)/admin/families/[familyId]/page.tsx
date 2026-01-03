@@ -142,6 +142,7 @@ export default function FamilyDetailPage() {
   const [retouchedPhotos, setRetouchedPhotos] = useState<RetouchedPhoto[]>([]);
   const [retouchedLoading, setRetouchedLoading] = useState(false);
   const [uploadingRetouched, setUploadingRetouched] = useState(false);
+  const [retouchedUploadError, setRetouchedUploadError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [deletingPhotoId, setDeletingPhotoId] = useState<string | null>(null);
   const retouchedFileInputRef = useRef<HTMLInputElement>(null);
@@ -571,8 +572,17 @@ export default function FamilyDetailPage() {
 
   const uploadRetouchedFiles = async (files: File[]) => {
     setUploadingRetouched(true);
+    setRetouchedUploadError(null);
+    const errors: string[] = [];
     try {
       for (const file of files) {
+        // Check file size (10MB limit)
+        const maxSize = 10 * 1024 * 1024;
+        if (file.size > maxSize) {
+          errors.push(`${file.name}: File too large (max 10MB)`);
+          continue;
+        }
+
         const fd = new FormData();
         fd.set("file", file);
 
@@ -580,14 +590,24 @@ export default function FamilyDetailPage() {
           method: "POST",
           body: fd,
         });
+
+        if (!res.ok) {
+          errors.push(`${file.name}: Upload failed (${res.status})`);
+          continue;
+        }
+
         const json = await res.json();
         if (!json.ok) {
-          console.error("Upload failed:", json.message);
+          errors.push(`${file.name}: ${json.message || "Upload failed"}`);
         }
       }
       await fetchRetouchedPhotos();
+      if (errors.length > 0) {
+        setRetouchedUploadError(errors.join("; "));
+      }
     } catch (err) {
       console.error("Upload error:", err);
+      setRetouchedUploadError("Upload failed. Please try again.");
     } finally {
       setUploadingRetouched(false);
     }
@@ -1041,6 +1061,21 @@ export default function FamilyDetailPage() {
                   </div>
                 )}
               </div>
+
+              {/* Upload Error Message */}
+              {retouchedUploadError && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{retouchedUploadError}</span>
+                  <button
+                    type="button"
+                    onClick={() => setRetouchedUploadError(null)}
+                    className="ml-auto hover:text-red-300"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
 
               {/* Retouched Photos Grid */}
               {retouchedLoading ? (

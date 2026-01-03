@@ -3,6 +3,10 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 
+// Allow up to 10MB uploads
+export const maxDuration = 60;
+export const dynamic = "force-dynamic";
+
 // POST - Upload retouched photo
 export async function POST(
   req: NextRequest,
