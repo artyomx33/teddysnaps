@@ -18,7 +18,7 @@ import { Header } from "@/components/layout/header";
 import { Card, Badge, Button, Glow } from "@/components/ui";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
-import { imagePresets } from "@/lib/image-transform";
+// Thumbnails are now pre-generated - no transform needed
 
 type TaskStatus = "queued" | "assigned" | "editing" | "done" | "delivered";
 
@@ -269,7 +269,7 @@ export default function RetouchQueuePage() {
                             <div className="aspect-square bg-charcoal-800">
                               {task.photo?.thumbnail_url && (
                                 <img
-                                  src={imagePresets.thumbnail(task.photo.thumbnail_url)}
+                                  src={task.photo.thumbnail_url}
                                   alt=""
                                   className="w-full h-full object-cover"
                                 />
@@ -315,7 +315,7 @@ export default function RetouchQueuePage() {
                     <div className="aspect-square rounded-lg overflow-hidden bg-charcoal-800 mb-4">
                       {selectedTask.photo?.thumbnail_url && (
                         <img
-                          src={imagePresets.preview(selectedTask.photo.thumbnail_url)}
+                          src={selectedTask.photo.thumbnail_url}
                           alt=""
                           className="w-full h-full object-cover"
                         />

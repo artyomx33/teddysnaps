@@ -31,7 +31,7 @@ import { Header } from "@/components/layout/header";
 import { Card, Badge, Button, Input, Glow } from "@/components/ui";
 import { Download } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { imagePresets } from "@/lib/image-transform";
+// Thumbnails are now pre-generated - no transform needed
 
 interface Child {
   id: string;
@@ -965,13 +965,13 @@ export default function FamiliesPage() {
                         <div className="w-12 h-12 rounded-full overflow-hidden bg-gradient-to-br from-teal-400 to-teal-600 flex items-center justify-center text-white font-serif text-lg flex-shrink-0">
                           {family.hero_photo?.[0]?.thumbnail_url || family.hero_photo?.[0]?.original_url ? (
                             <img
-                              src={imagePresets.thumbnail(family.hero_photo[0].thumbnail_url || family.hero_photo[0].original_url)}
+                              src={family.hero_photo[0].thumbnail_url || family.hero_photo[0].original_url}
                               alt=""
                               className="w-full h-full object-cover"
                             />
                           ) : family.children?.find(c => c.reference_photo_url)?.reference_photo_url ? (
                             <img
-                              src={imagePresets.thumbnail(family.children.find(c => c.reference_photo_url)!.reference_photo_url!)}
+                              src={family.children.find(c => c.reference_photo_url)!.reference_photo_url!}
                               alt=""
                               className="w-full h-full object-cover"
                             />

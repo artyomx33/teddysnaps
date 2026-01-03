@@ -32,7 +32,7 @@ import {
   type Family,
   type Session,
 } from "@/lib/actions/gallery";
-import { imagePresets } from "@/lib/image-transform";
+// Thumbnails are now pre-generated - no transform needed
 
 type DbProduct = {
   id: string;
@@ -495,7 +495,7 @@ export default function GalleryPage() {
                   aria-label="Add photo to cart"
                 >
                 <img
-                  src={imagePresets.thumbnail(photo.thumbnailUrl)}
+                  src={photo.thumbnailUrl}
                   alt=""
                   className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                 />
@@ -618,7 +618,7 @@ export default function GalleryPage() {
                       )}
                     >
                       <img
-                        src={imagePresets.thumbnail(photo.thumbnailUrl)}
+                        src={photo.thumbnailUrl}
                         alt={photo.filename || "Bewerkte foto"}
                         className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                       />
@@ -678,7 +678,7 @@ export default function GalleryPage() {
               <div className="px-4 pb-4">
                 <div className="aspect-[4/3] rounded-xl overflow-hidden bg-charcoal-800">
                   <img
-                    src={imagePresets.thumbnail(confirmPhoto.thumbnailUrl)}
+                    src={confirmPhoto.thumbnailUrl}
                     alt=""
                     className="w-full h-full object-cover"
                   />

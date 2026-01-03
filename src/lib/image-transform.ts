@@ -7,9 +7,10 @@
  * Docs: https://supabase.com/docs/guides/storage/serving/image-transformations
  */
 
-// Set to true once Image Transformations are enabled in Supabase dashboard
-// Go to: Settings > Storage > Enable Image Transformations
-const TRANSFORMS_ENABLED = true;
+// DISABLED: We now pre-generate thumbnails at upload time to avoid Supabase costs
+// See: scripts/migrate-thumbnails.ts for the migration
+// See: src/lib/actions/upload.ts for the new upload flow
+const TRANSFORMS_ENABLED = false;
 
 type ImageFormat = 'webp' | 'avif' | 'jpeg' | 'png';
 type ResizeMode = 'cover' | 'contain' | 'fill';

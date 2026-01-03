@@ -2,6 +2,13 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import sharp from "sharp";
+
+// Thumbnail configuration (matches migration script)
+const THUMBNAIL_CONFIG = {
+  width: 300,
+  quality: 55,
+};
 
 export async function createPhotoSession(data: {
   name: string;
@@ -45,27 +52,51 @@ export async function uploadPhoto(
     throw new Error("No file provided");
   }
 
-  const filename = `${sessionId}/${Date.now()}-${file.name}`;
+  const timestamp = Date.now();
+  const baseFilename = file.name.replace(/\.[^.]+$/, ""); // Remove extension
+  const originalFilename = `${sessionId}/${timestamp}-${file.name}`;
+  const thumbnailFilename = `thumbnails/${sessionId}/${timestamp}-${baseFilename}.webp`;
 
   // Upload original
   const { error: uploadError } = await supabase.storage
     .from("photos-originals")
-    .upload(filename, file);
+    .upload(originalFilename, file);
 
   if (uploadError) {
     console.error("Upload error:", uploadError);
     throw new Error("Failed to upload photo");
   }
 
+  // Generate thumbnail with Sharp
+  const fileBuffer = Buffer.from(await file.arrayBuffer());
+  const thumbnailBuffer = await sharp(fileBuffer)
+    .resize(THUMBNAIL_CONFIG.width, null, {
+      fit: "inside",
+      withoutEnlargement: true,
+    })
+    .webp({ quality: THUMBNAIL_CONFIG.quality })
+    .toBuffer();
+
+  // Upload thumbnail
+  const { error: thumbError } = await supabase.storage
+    .from("photos-originals")
+    .upload(thumbnailFilename, thumbnailBuffer, {
+      contentType: "image/webp",
+    });
+
+  if (thumbError) {
+    console.error("Thumbnail upload error:", thumbError);
+    // Don't fail the whole upload, just log it
+  }
+
   // Get URLs
   const { data: originalData } = supabase.storage
     .from("photos-originals")
-    .getPublicUrl(filename);
+    .getPublicUrl(originalFilename);
 
-  // For thumbnails, we'd normally resize here, but for MVP use original
   const { data: thumbnailData } = supabase.storage
     .from("photos-originals")
-    .getPublicUrl(filename);
+    .getPublicUrl(thumbnailFilename);
 
   // Create photo record
   const { data: photo, error: dbError } = await supabase

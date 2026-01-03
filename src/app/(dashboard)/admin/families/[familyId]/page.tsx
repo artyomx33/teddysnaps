@@ -27,7 +27,7 @@ import { Download } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { removeMatch, restoreMatchesForPhoto } from "@/lib/actions/faces";
 import { setFamilyHeroPhoto } from "@/lib/actions/families";
-import { imagePresets } from "@/lib/image-transform";
+// Thumbnails are now pre-generated - no transform needed
 
 interface Child {
   id: string;
@@ -859,7 +859,7 @@ export default function FamilyDetailPage() {
                     >
                       <div className="relative aspect-square rounded-lg overflow-hidden border border-charcoal-700 group-hover:border-charcoal-500 transition-colors">
                         <img
-                          src={imagePresets.thumbnail(p.thumbnailUrl)}
+                          src={p.thumbnailUrl}
                           alt=""
                           className="w-full h-full object-cover"
                         />
