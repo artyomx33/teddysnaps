@@ -3,26 +3,17 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 
-// POST - Create retouched photo record (storage upload done client-side)
+// POST - Handle retouched photo upload (supports both legacy FormData and new JSON)
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ familyId: string }> }
 ) {
   try {
     const { familyId } = await params;
-    const body = await req.json();
-    const { url, filename } = body;
 
     if (!familyId) {
       return NextResponse.json(
         { ok: false, message: "Missing familyId" },
-        { status: 400 }
-      );
-    }
-
-    if (!url || !filename) {
-      return NextResponse.json(
-        { ok: false, message: "Missing url or filename" },
         { status: 400 }
       );
     }
@@ -41,6 +32,59 @@ export async function POST(
         { ok: false, message: "Family not found" },
         { status: 404 }
       );
+    }
+
+    let url: string;
+    let filename: string;
+
+    // Check content type to determine how to parse the request
+    const contentType = req.headers.get("content-type") || "";
+
+    if (contentType.includes("application/json")) {
+      // New approach: JSON with url and filename (storage upload done client-side)
+      const body = await req.json();
+      url = body.url;
+      filename = body.filename;
+
+      if (!url || !filename) {
+        return NextResponse.json(
+          { ok: false, message: "Missing url or filename" },
+          { status: 400 }
+        );
+      }
+    } else {
+      // Legacy approach: FormData with file (upload via API)
+      const form = await req.formData();
+      const file = form.get("file");
+
+      if (!(file instanceof File)) {
+        return NextResponse.json(
+          { ok: false, message: "Missing file" },
+          { status: 400 }
+        );
+      }
+
+      const safeName = (file.name || "upload").replace(/[^a-zA-Z0-9._-]/g, "_");
+      const path = `retouched/${familyId}/${Date.now()}-${safeName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("photos-processed")
+        .upload(path, file, { upsert: true, contentType: file.type || undefined });
+
+      if (uploadError) {
+        console.error("[families/photos] Upload error:", uploadError);
+        return NextResponse.json(
+          { ok: false, message: uploadError.message },
+          { status: 500 }
+        );
+      }
+
+      const { data: urlData } = supabase.storage
+        .from("photos-processed")
+        .getPublicUrl(path);
+
+      url = urlData.publicUrl;
+      filename = safeName;
     }
 
     // Create photo record (uses service role - bypasses RLS)
@@ -70,7 +114,7 @@ export async function POST(
   } catch (e) {
     console.error("[families/photos] POST error:", e);
     return NextResponse.json(
-      { ok: false, message: "Failed to create photo record" },
+      { ok: false, message: "Failed to process request" },
       { status: 500 }
     );
   }
