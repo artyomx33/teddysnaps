@@ -588,7 +588,7 @@ export default function FamilyDetailPage() {
         const safeName = (file.name || "upload").replace(/[^a-zA-Z0-9._-]/g, "_");
         const path = `retouched/${familyId}/${Date.now()}-${safeName}`;
 
-        // Upload directly to Supabase storage (bypasses Vercel size limits)
+        // Step 1: Upload directly to Supabase storage (bypasses Vercel size limits)
         const { error: uploadError } = await supabase.storage
           .from("photos-processed")
           .upload(path, file, { upsert: true });
@@ -603,21 +603,24 @@ export default function FamilyDetailPage() {
           .from("photos-processed")
           .getPublicUrl(path);
 
-        // Create photo record
-        const { error: insertError } = await supabase
-          .from("photos")
-          .insert({
-            family_id: familyId,
-            is_retouched: true,
-            original_url: urlData.publicUrl,
-            thumbnail_url: urlData.publicUrl,
+        // Step 2: Create DB record via API (uses service role - bypasses RLS)
+        const res = await fetch(`/api/families/${familyId}/photos`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            url: urlData.publicUrl,
             filename: safeName,
-            faces_detected: 0,
-            needs_review: false,
-          });
+          }),
+        });
 
-        if (insertError) {
-          errors.push(`${file.name}: ${insertError.message}`);
+        if (!res.ok) {
+          errors.push(`${file.name}: Failed to create record (${res.status})`);
+          continue;
+        }
+
+        const json = await res.json();
+        if (!json.ok) {
+          errors.push(`${file.name}: ${json.message || "Failed to create record"}`);
         }
       }
       await fetchRetouchedPhotos();

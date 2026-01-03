@@ -3,19 +3,15 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 
-// Allow up to 10MB uploads
-export const maxDuration = 60;
-export const dynamic = "force-dynamic";
-
-// POST - Upload retouched photo
+// POST - Create retouched photo record (storage upload done client-side)
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ familyId: string }> }
 ) {
   try {
     const { familyId } = await params;
-    const form = await req.formData();
-    const file = form.get("file");
+    const body = await req.json();
+    const { url, filename } = body;
 
     if (!familyId) {
       return NextResponse.json(
@@ -24,9 +20,9 @@ export async function POST(
       );
     }
 
-    if (!(file instanceof File)) {
+    if (!url || !filename) {
       return NextResponse.json(
-        { ok: false, message: "Missing file" },
+        { ok: false, message: "Missing url or filename" },
         { status: 400 }
       );
     }
@@ -47,36 +43,15 @@ export async function POST(
       );
     }
 
-    // Upload to storage
-    const safeName = (file.name || "upload").replace(/[^a-zA-Z0-9._-]/g, "_");
-    const path = `retouched/${familyId}/${Date.now()}-${safeName}`;
-
-    const { error: uploadError } = await supabase.storage
-      .from("photos-processed")
-      .upload(path, file, { upsert: true, contentType: file.type || undefined });
-
-    if (uploadError) {
-      console.error("[families/photos] Upload error:", uploadError);
-      return NextResponse.json(
-        { ok: false, message: uploadError.message },
-        { status: 500 }
-      );
-    }
-
-    const { data: urlData } = supabase.storage
-      .from("photos-processed")
-      .getPublicUrl(path);
-    const publicUrl = urlData.publicUrl;
-
-    // Create photo record
+    // Create photo record (uses service role - bypasses RLS)
     const { data: photo, error: insertError } = await supabase
       .from("photos")
       .insert({
         family_id: familyId,
         is_retouched: true,
-        original_url: publicUrl,
-        thumbnail_url: publicUrl,
-        filename: safeName,
+        original_url: url,
+        thumbnail_url: url,
+        filename: filename,
         faces_detected: 0,
         needs_review: false,
       })
@@ -95,7 +70,7 @@ export async function POST(
   } catch (e) {
     console.error("[families/photos] POST error:", e);
     return NextResponse.json(
-      { ok: false, message: "Upload failed" },
+      { ok: false, message: "Failed to create photo record" },
       { status: 500 }
     );
   }
