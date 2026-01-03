@@ -574,6 +574,8 @@ export default function FamilyDetailPage() {
     setUploadingRetouched(true);
     setRetouchedUploadError(null);
     const errors: string[] = [];
+    const supabase = createClient();
+
     try {
       for (const file of files) {
         // Check file size (10MB limit)
@@ -583,22 +585,39 @@ export default function FamilyDetailPage() {
           continue;
         }
 
-        const fd = new FormData();
-        fd.set("file", file);
+        const safeName = (file.name || "upload").replace(/[^a-zA-Z0-9._-]/g, "_");
+        const path = `retouched/${familyId}/${Date.now()}-${safeName}`;
 
-        const res = await fetch(`/api/families/${familyId}/photos`, {
-          method: "POST",
-          body: fd,
-        });
+        // Upload directly to Supabase storage (bypasses Vercel size limits)
+        const { error: uploadError } = await supabase.storage
+          .from("photos-processed")
+          .upload(path, file, { upsert: true });
 
-        if (!res.ok) {
-          errors.push(`${file.name}: Upload failed (${res.status})`);
+        if (uploadError) {
+          errors.push(`${file.name}: ${uploadError.message}`);
           continue;
         }
 
-        const json = await res.json();
-        if (!json.ok) {
-          errors.push(`${file.name}: ${json.message || "Upload failed"}`);
+        // Get public URL
+        const { data: urlData } = supabase.storage
+          .from("photos-processed")
+          .getPublicUrl(path);
+
+        // Create photo record
+        const { error: insertError } = await supabase
+          .from("photos")
+          .insert({
+            family_id: familyId,
+            is_retouched: true,
+            original_url: urlData.publicUrl,
+            thumbnail_url: urlData.publicUrl,
+            filename: safeName,
+            faces_detected: 0,
+            needs_review: false,
+          });
+
+        if (insertError) {
+          errors.push(`${file.name}: ${insertError.message}`);
         }
       }
       await fetchRetouchedPhotos();
